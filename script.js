@@ -45,28 +45,28 @@ const questions = [
 ];
 
 // ======================= 香料對應表 =======================
-const TOP_NOTE_MAP = {       // Q1：前調（20%）
+const TOP_NOTE_MAP = {       // Q1：前調（基準 20%）
   A: ['香檸檬', '桂花'],
   B: ['無花果', '白葡萄酒'],
   C: ['含羞草', '伯爵茶']
 };
 
-const HEART_NOTE_MAP = {     // Q2：中調（50%）
+const HEART_NOTE_MAP = {     // Q2：中調（基準 50%）
   A: ['小蒼蘭', '金銀花'],
   B: ['橙花', '茉莉花'],
   C: ['天竺葵', '青草', '海洋']
 };
 
-const BASE_NOTE_MAP = {      // Q3：後調（30%）
+const BASE_NOTE_MAP = {      // Q3：後調（基準 30%）
   A: ['檀香木', '白麝香'],
   B: ['零陵香豆', '香草'],
-  C: ['鐵觀音', '麝香'] // （茶感）
+  C: ['鐵觀音', '麝香'] // 茶感
 };
 
-// ======================= 命名微調規則 =======================
-// 根據香水命名中的關鍵詞，對比例做±5%的小幅微調（總和維持100%）
-// - 偏深沉/夜/木質/茶：後調+5%，中調-5%
-// - 偏海洋/清新/花感：中調+5%，後調-5%
+// ======================= 命名微調規則（±5%） =======================
+// - 深沉/夜/木質/茶：後調+5%、中調-5%
+// - 海洋/清新/花感：中調+5%、後調-5%
+// 其餘不變
 function getNameAdjustments(perfumeName) {
   const name = (perfumeName || '').toLowerCase();
 
@@ -76,39 +76,75 @@ function getNameAdjustments(perfumeName) {
   const hasDeep  = deepKeys.some(k => perfumeName.includes(k));
   const hasFresh = freshKeys.some(k => perfumeName.includes(k));
 
-  if (hasDeep && !hasFresh)   return { heartDelta: -5, baseDelta: +5, reason: '名稱給人深沉/木質/夜色/茶意' };
-  if (hasFresh && !hasDeep)   return { heartDelta: +5, baseDelta: -5, reason: '名稱帶有海洋/清新/花感' };
+  if (hasDeep && !hasFresh)   return { heartDelta: -5, baseDelta: +5, reason: '深沉/木質/夜色/茶意' };
+  if (hasFresh && !hasDeep)   return { heartDelta: +5, baseDelta: -5, reason: '海洋/清新/花感' };
   return { heartDelta: 0, baseDelta: 0, reason: null };
 }
 
-// 針對特定關鍵字，優先分配該材料在同組中的份量（僅在該材料存在時）
-// 例：名稱含「茶」→ 若後調含「鐵觀音」，讓它在同組內多分 0.3 ml（從同組其他材料均分扣除）
+// ======================= 組內偏好分配（依命名） =======================
+// 在同組內微調某材料的份量（不改變該組總 ml）
 function biasWithinGroupByName(perfumeName, notes, weightsByMat) {
   const addBias = (targetMat, extraMl, groupMats) => {
-    if (!groupMats.includes(targetMat)) return;
+    if (!groupMats || !groupMats.includes(targetMat)) return;
     const others = groupMats.filter(m => m !== targetMat);
     if (others.length === 0) return;
-    // 從其他材料等量扣除
     const per = +(extraMl / others.length).toFixed(3);
     weightsByMat[targetMat] = +(weightsByMat[targetMat] + extraMl).toFixed(3);
-    others.forEach(m => {
-      weightsByMat[m] = +(weightsByMat[m] - per).toFixed(3);
-    });
+    others.forEach(m => { weightsByMat[m] = +(weightsByMat[m] - per).toFixed(3); });
   };
 
   if (perfumeName.includes('茶') || perfumeName.toLowerCase().includes('tea')) {
-    addBias('鐵觀音', 0.3, notes.base || []);
+    addBias('鐵觀音', 0.3, notes.base);
   }
   if (perfumeName.includes('木') || perfumeName.toLowerCase().includes('wood')) {
-    addBias('檀香木', 0.3, notes.base || []);
+    addBias('檀香木', 0.3, notes.base);
   }
   if (perfumeName.includes('花') || perfumeName.toLowerCase().includes('bloom')) {
-    addBias('茉莉花', 0.2, notes.heart || []);
-    addBias('小蒼蘭', 0.2, notes.heart || []);
+    addBias('茉莉花', 0.2, notes.heart);
+    addBias('小蒼蘭', 0.2, notes.heart);
   }
 }
 
-// ======================= 香水配方計算（已改為 ml，總量預設 6 ml） =======================
+// ======================= 依「答案內容」計算比例微調（正向語意） =======================
+// 由三題的意象加總出前/中/後的加權，再與命名微調合併
+function getAnswerAdjustments(answerValues) {
+  const delta = { top: 0, heart: 0, base: 0 };
+  const reasons = [];
+
+  // Q1：場景藏身 → 對「開場氣息/延展」的傾向
+  const q1 = (answerValues[0] || '').toUpperCase();
+  if (q1 === 'A') { delta.top += 5; reasons.push('你在起點選擇了「迅速而明亮的開場」，提升前調帶出俐落第一印象。'); }
+  if (q1 === 'B') { delta.heart += 3; delta.base += 2; reasons.push('你傾向「流動與綠意的穩定」，強化中調連續性，並給予基底些許延伸。'); }
+  if (q1 === 'C') { delta.base += 5; reasons.push('你擁抱「靜穩與深度」，讓後調更具留香層次。'); }
+
+  // Q2：珍寶象徵 → 對「情感主體」的傾向
+  const q2 = (answerValues[1] || '').toUpperCase();
+  if (q2 === 'A') { delta.heart += 5; reasons.push('你以「溫柔柔軟」作為核心，強化中調花香/主體。'); }
+  if (q2 === 'B') { delta.top += 2; delta.heart += 3; reasons.push('你偏向「清晰與條理」，前調更俐落，同時穩住中調脈絡。'); }
+  if (q2 === 'C') { delta.base += 3; delta.heart += 2; reasons.push('你選了「帶著記憶的餘韻」，後調更綿長，中調更有溫度。'); }
+
+  // Q3：旋律 → 對「結尾情緒」的傾向
+  const q3 = (answerValues[2] || '').toUpperCase();
+  if (q3 === 'A') { delta.top += 3; reasons.push('你偏好「俏皮而乾淨」的節奏，再給前調一些亮度。'); }
+  if (q3 === 'B') { delta.base += 5; reasons.push('你的旋律選擇帶來張力與深沉，使後調獲得更豐富的延展。'); }
+  if (q3 === 'C') { delta.base += 3; delta.heart += 2; reasons.push('你選擇「溫柔惆悵的回望」，基底更沉著，中調更有情緒線。'); }
+
+  return { delta, reasons };
+}
+
+// ======================= 比例正規化到 100% =======================
+function normalizeRatios(r) {
+  const sum = r.top + r.heart + r.base;
+  if (sum === 100) return r;
+  const scale = 100 / sum;
+  return {
+    top:   Math.max(0, +(r.top   * scale).toFixed(2)),
+    heart: Math.max(0, +(r.heart * scale).toFixed(2)),
+    base:  Math.max(0, +(r.base  * scale).toFixed(2)),
+  };
+}
+
+// ======================= 香水配方計算（ml，總量預設 6 ml） =======================
 function getPerfumeFormula(answerValues, totalMl = 6, ratioOverride = null) {
   if (!Array.isArray(answerValues) || answerValues.length !== 3) {
     throw new Error('❌ 答案應為長度 3 的字母陣列');
@@ -121,37 +157,84 @@ function getPerfumeFormula(answerValues, totalMl = 6, ratioOverride = null) {
     base:  BASE_NOTE_MAP[q3]  || []
   };
 
-  // 基礎比例
-  const baseRatio = ratioOverride || { top: 20, heart: 50, base: 30 };
+  // 1) 命名之後會傳進來的基準（或預設 20/50/30）
+  let ratio = ratioOverride || { top: 20, heart: 50, base: 30 };
 
-  // ---- 計算每支香料容量（ml） ----
+  // 2) 由「答案」帶來的比例微調
+  const answerAdj = getAnswerAdjustments(answerValues);
+  ratio = {
+    top:   ratio.top   + answerAdj.delta.top,
+    heart: ratio.heart + answerAdj.delta.heart,
+    base:  ratio.base  + answerAdj.delta.base
+  };
+
+  // 3) 正規化（避免總和≠100）
+  ratio = normalizeRatios(ratio);
+
+  // 4) 轉換為 ml，並平均到同組內的材料
   const weights = {};
   for (const noteType of ['top', 'heart', 'base']) {
-    const groupVol     = totalMl * baseRatio[noteType] / 100;
-    const materials    = notes[noteType];
-    if (materials.length === 0) continue;
-    const eachBase     = +(groupVol / materials.length).toFixed(3);
-    let residual       = +(groupVol - eachBase * materials.length).toFixed(3);
+    const groupVol = +(totalMl * ratio[noteType] / 100).toFixed(3);
+    const materials = notes[noteType];
+    if (!materials || materials.length === 0) continue;
+    const eachBase = +(groupVol / materials.length).toFixed(3);
+    let residual = +(groupVol - eachBase * materials.length).toFixed(3);
     materials.forEach((mat, idx) => {
       weights[mat] = +(eachBase + (idx === 0 ? residual : 0)).toFixed(3);
     });
   }
 
-  return { notes, ratio: baseRatio, weights, total: totalMl, unit: 'ml' };
+  return {
+    notes,
+    ratio,
+    weights,
+    total: totalMl,
+    unit: 'ml',
+    answerReasons: answerAdj.reasons
+  };
 }
 
-// ======================= 簡易說明（Summary）生成 =======================
-function buildResultSummary(answers, result, nameAdjInfo) {
-  const pickLines = answers.map((a, idx) => `Q${idx + 1} → ${a.answer}`).join('；');
-  const { ratio, total } = result;
-  const adjText = nameAdjInfo && (nameAdjInfo.heartDelta !== 0 || nameAdjInfo.baseDelta !== 0)
-    ? `因為名稱${nameAdjInfo.reason}，將比例微調為：前調 ${ratio.top}%、中調 ${ratio.heart}%、後調 ${ratio.base}%（總量 ${total} ml）。`
-    : `比例：前調 ${ratio.top}%、中調 ${ratio.heart}%、後調 ${ratio.base}%（總量 ${total} ml）。`;
+// ======================= 分析式 Summary（正向描述 + 實際 ml） =======================
+function buildResultSummary(result, perfumeName, nameAdjInfo) {
+  const { ratio, total, notes, weights, answerReasons } = result;
 
-  return `你的選擇：${pickLines}。${adjText}`;
+  // 找出每組的主角香材（該組中重量最大者）
+  const pickHero = (arr) => {
+    if (!arr || arr.length === 0) return null;
+    return arr.map(m => ({ m, w: weights[m] || 0 }))
+              .sort((a,b) => b.w - a.w)[0];
+  };
+  const heroTop   = pickHero(notes.top);
+  const heroHeart = pickHero(notes.heart);
+  const heroBase  = pickHero(notes.base);
+
+  // 命名微調描述
+  const nameLine = (nameAdjInfo && (nameAdjInfo.heartDelta !== 0 || nameAdjInfo.baseDelta !== 0))
+    ? `因為「${perfumeName}」這個名字帶出 ${nameAdjInfo.reason}，系統進一步微調比例，使香氣更貼近命名意象。`
+    : `命名沒有帶來額外強烈偏好，因此以你作答的氣味方向作為主要依據。`;
+
+  // 各組實際 ml
+  const groupMl = {
+    top:   +(total * ratio.top   / 100).toFixed(3),
+    heart: +(total * ratio.heart / 100).toFixed(3),
+    base:  +(total * ratio.base  / 100).toFixed(3),
+  };
+
+  const lines = [
+    ...answerReasons,
+    nameLine,
+    `因此本次的層次分配為：前調 ${ratio.top}%（${groupMl.top} ml）、中調 ${ratio.heart}%（${groupMl.heart} ml）、後調 ${ratio.base}%（${groupMl.base} ml），總量 ${total} ml。`,
+    `主角香材亮點：` +
+      `${heroTop ? `前調以「${heroTop.m}」更顯醒神` : '前調清爽開啟' }、` +
+      `${heroHeart ? `中調以「${heroHeart.m}」連結情緒` : '中調柔和承接' }、` +
+      `${heroBase ? `後調由「${heroBase.m}」延展餘韻` : '後調沉穩收束' }，` +
+      `共同構成專屬的氣味敘事。`
+  ];
+
+  return lines.map(t => `<p>${t}</p>`).join('');
 }
 
-// ======================= 渲染香水配方（一般顯示） =======================
+// ======================= 一般配方區塊渲染（ml 顯示） =======================
 function renderPerfumeFormula(result) {
   const { notes, ratio, weights, total, unit } = result;
   const listHtml = (arr) => arr.map(mat => `<li>${mat}：${(weights[mat] ?? 0).toFixed(3)} ${unit}</li>`).join('');
@@ -177,6 +260,37 @@ function renderPerfumeFormula(result) {
       </div>
     </div>
   `;
+}
+
+// ======================= 配方卡格式渲染（顯示 ml + 總重量 6 ml） =======================
+function renderCardFormula(result) {
+  const { notes, ratio, weights, total, unit } = result;
+  const mkList = (arr) => arr.map(mat =>
+    `<li><span class="material-name">${mat}</span><span class="material-weight">${(weights[mat] ?? 0).toFixed(3)}${unit}</span></li>`
+  ).join('');
+
+  let html = '<div class="formula-grid">';
+  html += `
+    <div class="formula-card-section">
+      <h4>前調 ${ratio.top}%</h4>
+      <ul class="formula-card-list">${mkList(notes.top)}</ul>
+    </div>
+  `;
+  html += `
+    <div class="formula-card-section">
+      <h4>中調 ${ratio.heart}%</h4>
+      <ul class="formula-card-list">${mkList(notes.heart)}</ul>
+    </div>
+  `;
+  html += `
+    <div class="formula-card-section">
+      <h4>後調 ${ratio.base}%</h4>
+      <ul class="formula-card-list">${mkList(notes.base)}</ul>
+    </div>
+  `;
+  html += '</div>';
+  html += `<p class="formula-total-weight">總重量：${total} ${unit}</p>`;
+  return html;
 }
 
 // ======================= 狀態管理 & DOM 元素 =======================
@@ -344,14 +458,11 @@ function handleAnswer(option) {
 function handleMusicChoice(option, btnEl) {
   if (currentAudio) {
     audioPlayer.pause();
-    document.querySelectorAll('.music-button').forEach(btn => {
-      btn.classList.remove('playing', 'selected');
-    });
+    document.querySelectorAll('.music-button').forEach(btn => btn.classList.remove('playing', 'selected'));
   }
 
   audioPlayer.src = option.audio;
   btnEl.classList.add('playing', 'selected');
-
   audioPlayer.play();
   currentAudio = option.audio;
   selectedMusicOption = option;
@@ -362,12 +473,9 @@ function handleMusicChoice(option, btnEl) {
 
 function confirmMusicSelection() {
   if (!selectedMusicOption) return;
-
   answers.push({ question: questions[currentQuestion].title, answer: selectedMusicOption.text });
   answerValues.push(selectedMusicOption.value);
-
   if (currentAudio) audioPlayer.pause();
-
   selectedMusicOption = null;
   currentQuestion++;
   showQuestion();
@@ -381,7 +489,7 @@ function showResult() {
   if (currentAudio) audioPlayer.pause();
 
   let resultHTML = '';
-  answers.forEach((answer, index) => {
+  answers.forEach((answer) => {
     resultHTML += `
       <div class="choice-item">
         <h3>${answer.question}</h3>
@@ -417,29 +525,27 @@ function restart() {
   coverPage.classList.remove('hidden');
 }
 
-// ======================= 生成配方卡（含命名微調與說明） =======================
+// ======================= 生成配方卡（動態比例 + 分析說明 + 6 ml） =======================
 function generatePerfumeCard() {
   const perfumeName = document.getElementById('perfume-name-input').value.trim();
-
-  if (!perfumeName) {
-    alert('請輸入香水名稱！');
-    return;
-  }
+  if (!perfumeName) { alert('請輸入香水名稱！'); return; }
 
   try {
-    // 1) 根據命名決定比例微調
+    // 1) 先用命名做中/後調 ±5% 微調
     const nameAdj = getNameAdjustments(perfumeName);
-    const baseRatio = { top: 20, heart: 50 + nameAdj.heartDelta, base: 30 + nameAdj.baseDelta };
+    let baseRatio = { top: 20, heart: 50 + nameAdj.heartDelta, base: 30 + nameAdj.baseDelta };
+    baseRatio = normalizeRatios(baseRatio);
 
-    // 2) 計算配方（總量固定 6 ml）
+    // 2) 依「答案 + 命名後基準」計算比例與 ml
     const perfumeResult = getPerfumeFormula(answerValues, 6, baseRatio);
 
-    // 3) 針對命名在同組內做少量偏好分配
+    // 3) 組內偏好分配（茶/木/花等）
     biasWithinGroupByName(perfumeName, perfumeResult.notes, perfumeResult.weights);
 
-    // 4) 生成配方卡 HTML（含小結）
-    const summaryText = buildResultSummary(answers, perfumeResult, nameAdj);
+    // 4) 分析式 Summary
+    const richSummaryHTML = buildResultSummary(perfumeResult, perfumeName, nameAdj);
 
+    // 5) 卡片輸出
     const cardHTML = `
       <div id="perfume-card" class="perfume-card">
         <div class="card-header">
@@ -451,7 +557,7 @@ function generatePerfumeCard() {
           ${renderCardFormula(perfumeResult)}
           <div class="card-summary">
             <h4>結果說明</h4>
-            <p>${summaryText}</p>
+            ${richSummaryHTML}
           </div>
         </div>
 
@@ -462,15 +568,9 @@ function generatePerfumeCard() {
       </div>
 
       <div class="share-buttons">
-        <button id="copy-link-btn" class="share-btn">
-          <span class="icon">🔗</span> 複製連結
-        </button>
-        <button id="download-png-btn" class="share-btn">
-          <span class="icon">📷</span> 下載圖片
-        </button>
-        <button id="share-fb-btn" class="share-btn">
-          <span class="icon">📱</span> 分享到 Facebook
-        </button>
+        <button id="copy-link-btn" class="share-btn"><span class="icon">🔗</span> 複製連結</button>
+        <button id="download-png-btn" class="share-btn"><span class="icon">📷</span> 下載圖片</button>
+        <button id="share-fb-btn" class="share-btn"><span class="icon">📱</span> 分享到 Facebook</button>
       </div>
     `;
 
@@ -485,48 +585,10 @@ function generatePerfumeCard() {
     document.getElementById('share-fb-btn').addEventListener('click', shareToFacebook);
 
     cardContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
   } catch (error) {
     console.error('配方生成錯誤:', error);
     alert('配方生成失敗，請重試！');
   }
-}
-
-// ======================= 配方卡格式渲染（顯示 ml + 總重量 6 ml） =======================
-function renderCardFormula(result) {
-  const { notes, ratio, weights, total, unit } = result;
-
-  const mkList = (arr) => arr.map(mat =>
-    `<li><span class="material-name">${mat}</span><span class="material-weight">${(weights[mat] ?? 0).toFixed(3)}${unit}</span></li>`
-  ).join('');
-
-  let html = '<div class="formula-grid">';
-
-  html += `
-    <div class="formula-card-section">
-      <h4>前調 ${ratio.top}%</h4>
-      <ul class="formula-card-list">${mkList(notes.top)}</ul>
-    </div>
-  `;
-
-  html += `
-    <div class="formula-card-section">
-      <h4>中調 ${ratio.heart}%</h4>
-      <ul class="formula-card-list">${mkList(notes.heart)}</ul>
-    </div>
-  `;
-
-  html += `
-    <div class="formula-card-section">
-      <h4>後調 ${ratio.base}%</h4>
-      <ul class="formula-card-list">${mkList(notes.base)}</ul>
-    </div>
-  `;
-
-  html += '</div>';
-  html += `<p class="formula-total-weight">總重量：${total} ${unit}</p>`;
-
-  return html;
 }
 
 // ======================= 分享 / 下載 =======================
@@ -554,13 +616,7 @@ async function downloadPNG() {
 
   try {
     showToast('正在生成圖片...');
-
-    const canvas = await html2canvas(perfumeCard, {
-      backgroundColor: '#1a1a2e',
-      scale: 2,
-      logging: false
-    });
-
+    const canvas = await html2canvas(perfumeCard, { backgroundColor: '#1a1a2e', scale: 2, logging: false });
     canvas.toBlob((blob) => {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
