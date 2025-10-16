@@ -1,4 +1,4 @@
-// 問題資料 (使用像素座標，假設圖片尺寸為768x768)
+// ======================= 問題資料 (使用像素座標，假設圖片尺寸為768x768) =======================
 const questions = [
   {
     id: 1,
@@ -9,9 +9,9 @@ const questions = [
     height: 768,
     type: 'clickable',
     options: [
-      { id: 'door', text: '一扇半掩的木門後', value: 'A', x: 150, y: 260, w: 140, h: 260 },
+      { id: 'door',    text: '一扇半掩的木門後', value: 'A', x: 150, y: 260, w: 140, h: 260 },
       { id: 'passage', text: '一段濕冷的綠牆通道', value: 'B', x: 480, y: 260, w: 130, h: 240 },
-      { id: 'storage', text: '地下貯藏室', value: 'C', x: 495, y: 555, w: 120, h: 140 }
+      { id: 'storage', text: '地下貯藏室',       value: 'C', x: 495, y: 555, w: 120, h: 140 }
     ]
   },
   {
@@ -23,9 +23,9 @@ const questions = [
     height: 768,
     type: 'clickable',
     options: [
-      { id: 'doll', text: '一隻破布偶', value: 'A', x: 295, y: 680, w: 80, h: 85 },
-      { id: 'notebook', text: '一本舊筆記本', value: 'B', x: 470, y: 700, w: 55, h: 55 },
-      { id: 'photo', text: '一張撕掉角的照片', value: 'C', x: 422, y: 695, w: 33, h: 40 }
+      { id: 'doll',     text: '一隻破布偶',       value: 'A', x: 295, y: 680, w: 80, h: 85 },
+      { id: 'notebook', text: '一本舊筆記本',     value: 'B', x: 470, y: 700, w: 55, h: 55 },
+      { id: 'photo',    text: '一張撕掉角的照片', value: 'C', x: 422, y: 695, w: 33, h: 40 }
     ]
   },
   {
@@ -37,34 +37,129 @@ const questions = [
     height: 768,
     type: 'music',
     options: [
-      { id: 'pink', text: 'Pink Soldiers', audio: 'Pink Soldiers.mp3', value: 'A' },
-      { id: 'rope', text: 'The Rope is Tied', audio: 'The Rope is Tied  Squid Game OST.mp3', value: 'B' },
-      { id: 'way', text: 'Way Back Then', audio: 'Way Back then.mp3', value: 'C' }
+      { id: 'pink', text: 'Pink Soldiers',        audio: 'Pink Soldiers.mp3', value: 'A' },
+      { id: 'rope', text: 'The Rope is Tied',     audio: 'The Rope is Tied  Squid Game OST.mp3', value: 'B' },
+      { id: 'way',  text: 'Way Back Then',        audio: 'Way Back then.mp3', value: 'C' }
     ]
   }
 ];
 
-// ---------- 香料對應表 ----------
-const TOP_NOTE_MAP = {       // Q1：前調（20%）
+// ======================= 香料對應表（基準：前20 / 中50 / 後30） =======================
+const TOP_NOTE_MAP = {
   A: ['香檸檬', '桂花'],
   B: ['無花果', '白葡萄酒'],
   C: ['含羞草', '伯爵茶']
 };
 
-const HEART_NOTE_MAP = {     // Q2：中調（50%）
+const HEART_NOTE_MAP = {
   A: ['小蒼蘭', '金銀花'],
   B: ['橙花', '茉莉花'],
   C: ['天竺葵', '青草', '海洋']
 };
 
-const BASE_NOTE_MAP = {      // Q3：後調（30%）
+const BASE_NOTE_MAP = {
   A: ['檀香木', '白麝香'],
   B: ['零陵香豆', '香草'],
-  C: ['禪茶', '麝香', '紅木']
+  C: ['鐵觀音', '麝香'] // 茶感
 };
 
-// ---------- 香水配方計算函式 ----------
-function getPerfumeFormula(answerValues, totalGrams = 8) {
+// ======================= 命名微調規則（±5%） =======================
+// - 深沉/夜/木質/茶：後調+5%、中調-5%
+// - 海洋/清新/花感：中調+5%、後調-5%
+// 其餘不變（0%）
+function getNameAdjustments(perfumeName) {
+  const deepKeys  = ['夜', '黑', 'noir', 'wood', '木', '檀', '茶', 'zen'];
+  const freshKeys = ['海', 'wave', '潮', 'ocean', 'blue', '花', 'bloom', 'light', '清'];
+
+  const hasDeep  = deepKeys.some(k => perfumeName.includes(k));
+  const hasFresh = freshKeys.some(k => perfumeName.includes(k));
+
+  if (hasDeep && !hasFresh) return { heartDelta: -5, baseDelta: +5, reason: '深沉/木質/夜色/茶意' };
+  if (hasFresh && !hasDeep) return { heartDelta: +5, baseDelta: -5, reason: '海洋/清新/花感' };
+  return { heartDelta: 0, baseDelta: 0, reason: null };
+}
+
+// ======================= 組內偏好分配（依命名，不改變該組總 ml） =======================
+function biasWithinGroupByName(perfumeName, notes, weightsByMat) {
+  const addBias = (targetMat, extraMl, groupMats) => {
+    if (!groupMats || !groupMats.includes(targetMat)) return;
+    const others = groupMats.filter(m => m !== targetMat);
+    if (others.length === 0) return;
+    const per = +(extraMl / others.length).toFixed(3);
+    weightsByMat[targetMat] = +(weightsByMat[targetMat] + extraMl).toFixed(3);
+    others.forEach(m => { weightsByMat[m] = +(weightsByMat[m] - per).toFixed(3); });
+  };
+
+  const name = perfumeName.toLowerCase();
+  if (perfumeName.includes('茶') || name.includes('tea')) {
+    addBias('鐵觀音', 0.3, notes.base);
+  }
+  if (perfumeName.includes('木') || name.includes('wood')) {
+    addBias('檀香木', 0.3, notes.base);
+  }
+  if (perfumeName.includes('花') || name.includes('bloom')) {
+    addBias('茉莉花', 0.2, notes.heart);
+    addBias('小蒼蘭', 0.2, notes.heart);
+  }
+}
+
+// ======================= 依「答案內容」計算比例微調（僅數值，±5% 以內） =======================
+function getAnswerAdjustments(answerValues) {
+  const delta = { top: 0, heart: 0, base: 0 };
+
+  // Q1：A亮開場(前+5), B穩定(中+3/後+2), C深沉(後+5)
+  const q1 = (answerValues[0] || '').toUpperCase();
+  if (q1 === 'A') { delta.top   += 5; }
+  else if (q1 === 'B') { delta.heart += 3; delta.base  += 2; }
+  else if (q1 === 'C') { delta.base  += 5; }
+
+  // Q2：A柔軟(中+5), B條理(前+2/中+3), C記憶(後+3/中+2)
+  const q2 = (answerValues[1] || '').toUpperCase();
+  if (q2 === 'A') { delta.heart += 5; }
+  else if (q2 === 'B') { delta.top += 2; delta.heart += 3; }
+  else if (q2 === 'C') { delta.base += 3; delta.heart += 2; }
+
+  // Q3：A俏皮(前+3), B張力(後+5), C惆悵(後+3/中+2)
+  const q3 = (answerValues[2] || '').toUpperCase();
+  if (q3 === 'A') { delta.top += 3; }
+  else if (q3 === 'B') { delta.base += 5; }
+  else if (q3 === 'C') { delta.base += 3; delta.heart += 2; }
+
+  return delta; // 不回傳文字說明
+}
+
+// ======================= 比例正規化到 100% 並取 1 位小數 =======================
+function normalizeRatiosTo1dp(r) {
+  // 步驟1：先正規化（避免加總≠100）
+  const sumRaw = r.top + r.heart + r.base;
+  let rt = {
+    top:   (r.top   / sumRaw) * 100,
+    heart: (r.heart / sumRaw) * 100,
+    base:  (r.base  / sumRaw) * 100,
+  };
+
+  // 步驟2：四捨五入到 1 位小數
+  rt.top   = Math.round(rt.top   * 10) / 10;
+  rt.heart = Math.round(rt.heart * 10) / 10;
+  rt.base  = Math.round(rt.base  * 10) / 10;
+
+  // 步驟3：用最大者補差，使總和=100.0
+  const sum1dp = +(rt.top + rt.heart + rt.base).toFixed(1);
+  const diff = +(100.0 - sum1dp).toFixed(1);
+  if (diff !== 0) {
+    const entries = [
+      ['top', rt.top],
+      ['heart', rt.heart],
+      ['base', rt.base]
+    ].sort((a, b) => b[1] - a[1]);
+    const keyMax = entries[0][0];
+    rt[keyMax] = +(rt[keyMax] + diff).toFixed(1);
+  }
+  return rt;
+}
+
+// ======================= 香水配方計算（ml，總量固定 6 ml） =======================
+function getPerfumeFormula(answerValues, totalMl = 6, ratioOverride = null) {
   if (!Array.isArray(answerValues) || answerValues.length !== 3) {
     throw new Error('❌ 答案應為長度 3 的字母陣列');
   }
@@ -75,102 +170,167 @@ function getPerfumeFormula(answerValues, totalGrams = 8) {
     heart: HEART_NOTE_MAP[q2] || [],
     base:  BASE_NOTE_MAP[q3]  || []
   };
-  const ratio = { top: 20, heart: 50, base: 30 };
 
-  // ---- 計算每支香料重量 ----
+  // 1) 基準比例（可被命名先行微調）
+  let ratio = ratioOverride || { top: 20, heart: 50, base: 30 };
+
+  // 2) 由「答案」帶來的 ±5% 微調
+  const ansDelta = getAnswerAdjustments(answerValues);
+  ratio = {
+    top:   ratio.top   + ansDelta.top,
+    heart: ratio.heart + ansDelta.heart,
+    base:  ratio.base  + ansDelta.base
+  };
+
+  // 3) 取 1 位小數且合計 100.0%
+  ratio = normalizeRatiosTo1dp(ratio);
+
+  // 4) 轉換為 ml，並平均到同組內的材料
   const weights = {};
   for (const noteType of ['top', 'heart', 'base']) {
-    const groupWeight   = totalGrams * ratio[noteType] / 100;
-    const materials     = notes[noteType];
-    const eachBase      = +(groupWeight / materials.length).toFixed(3);
-    let residual        = +(groupWeight - eachBase * materials.length).toFixed(3);
-
+    const groupVol = +(totalMl * ratio[noteType] / 100).toFixed(3);
+    const materials = notes[noteType];
+    if (!materials || materials.length === 0) continue;
+    const eachBase = +(groupVol / materials.length).toFixed(3);
+    let residual = +(groupVol - eachBase * materials.length).toFixed(3);
     materials.forEach((mat, idx) => {
-      weights[mat] = eachBase + (idx === 0 ? residual : 0);
+      weights[mat] = +(eachBase + (idx === 0 ? residual : 0)).toFixed(3);
     });
   }
 
-  return { notes, ratio, weights, total: totalGrams };
+  return { notes, ratio, weights, total: totalMl, unit: 'ml' };
 }
 
-// ---------- 渲染香水配方 ----------
+// ======================= 分析式 Summary（不顯示答案原因） =======================
+function buildResultSummary(result, perfumeName, nameAdjInfo) {
+  const { ratio, total, notes, weights } = result;
+
+  // 找出每組的主角香材（該組中重量最大者）
+  const pickHero = (arr) => {
+    if (!arr || arr.length === 0) return null;
+    return arr.map(m => ({ m, w: weights[m] || 0 }))
+              .sort((a,b) => b.w - a.w)[0];
+  };
+  const heroTop   = pickHero(notes.top);
+  const heroHeart = pickHero(notes.heart);
+  const heroBase  = pickHero(notes.base);
+
+  // 命名微調描述（簡潔正向）
+  const nameLine = (nameAdjInfo && (nameAdjInfo.heartDelta !== 0 || nameAdjInfo.baseDelta !== 0))
+    ? `「${perfumeName}」觸發了命名偏好（${nameAdjInfo.reason}），比例隨之微調，更貼近你的氣味意象。`
+    : `命名未帶來額外偏好，本次比例主要根據你的直覺選擇而定。`;
+
+  // 各組實際 ml（保留 3 位小數）
+  const groupMl = {
+    top:   +(total * ratio.top   / 100).toFixed(3),
+    heart: +(total * ratio.heart / 100).toFixed(3),
+    base:  +(total * ratio.base  / 100).toFixed(3),
+  };
+
+  // 正向敘述，僅呈現結果
+  const lines = [
+    `<p>${nameLine}</p>`,
+    `<p>層次分配：前調 ${ratio.top.toFixed(1)}%（${groupMl.top} ml）、中調 ${ratio.heart.toFixed(1)}%（${groupMl.heart} ml）、後調 ${ratio.base.toFixed(1)}%（${groupMl.base} ml），總量 ${total} ml。</p>`,
+    `<p>主角香材亮點：` +
+      `${heroTop ? `前調以「${heroTop.m}」提神開場` : '前調清爽開啟'}、` +
+      `${heroHeart ? `中調以「${heroHeart.m}」連結情緒` : '中調柔和承接'}、` +
+      `${heroBase ? `後調由「${heroBase.m}」延展餘韻` : '後調沉穩收束'}。</p>`
+  ];
+
+  return lines.join('');
+}
+
+// ======================= 一般配方區塊渲染（ml 顯示） =======================
 function renderPerfumeFormula(result) {
-  const { notes, ratio, weights, total } = result;
-  
-  // 依前中後調分組顯示
-  const topNotes = notes.top.map(mat => 
-    `<li>${mat}：${weights[mat].toFixed(3)} g</li>`
-  ).join('');
-  
-  const heartNotes = notes.heart.map(mat => 
-    `<li>${mat}：${weights[mat].toFixed(3)} g</li>`
-  ).join('');
-  
-  const baseNotes = notes.base.map(mat => 
-    `<li>${mat}：${weights[mat].toFixed(3)} g</li>`
-  ).join('');
+  const { notes, ratio, weights, total, unit } = result;
+  const listHtml = (arr) => arr.map(mat => `<li>${mat}：${(weights[mat] ?? 0).toFixed(3)} ${unit}</li>`).join('');
 
   return `
     <div class="perfume-formula">
       <h3>✨ 你的專屬香水配方 ✨</h3>
-      <p class="formula-total">總重量：${total} g</p>
-      
+      <p class="formula-total">總重量：${total} ${unit}</p>
+
       <div class="formula-section">
-        <h4>▸ 前調（${ratio.top}%）</h4>
-        <ul class="formula-list">${topNotes}</ul>
+        <h4>▸ 前調（${ratio.top.toFixed(1)}%）</h4>
+        <ul class="formula-list">${listHtml(notes.top)}</ul>
       </div>
-      
+
       <div class="formula-section">
-        <h4>▸ 中調（${ratio.heart}%）</h4>
-        <ul class="formula-list">${heartNotes}</ul>
+        <h4>▸ 中調（${ratio.heart.toFixed(1)}%）</h4>
+        <ul class="formula-list">${listHtml(notes.heart)}</ul>
       </div>
-      
+
       <div class="formula-section">
-        <h4>▸ 後調（${ratio.base}%）</h4>
-        <ul class="formula-list">${baseNotes}</ul>
+        <h4>▸ 後調（${ratio.base.toFixed(1)}%）</h4>
+        <ul class="formula-list">${listHtml(notes.base)}</ul>
       </div>
     </div>
   `;
 }
 
-// 狀態管理
+// ======================= 配方卡格式渲染（顯示 ml + 比例1位小數 + 總重量6 ml） =======================
+function renderCardFormula(result) {
+  const { notes, ratio, weights, total, unit } = result;
+  const mkList = (arr) => arr.map(mat =>
+    `<li><span class="material-name">${mat}</span><span class="material-weight">${(weights[mat] ?? 0).toFixed(3)}${unit}</span></li>`
+  ).join('');
+
+  let html = '<div class="formula-grid">';
+  html += `
+    <div class="formula-card-section">
+      <h4>前調 ${ratio.top.toFixed(1)}%</h4>
+      <ul class="formula-card-list">${mkList(notes.top)}</ul>
+    </div>
+  `;
+  html += `
+    <div class="formula-card-section">
+      <h4>中調 ${ratio.heart.toFixed(1)}%</h4>
+      <ul class="formula-card-list">${mkList(notes.heart)}</ul>
+    </div>
+  `;
+  html += `
+    <div class="formula-card-section">
+      <h4>後調 ${ratio.base.toFixed(1)}%</h4>
+      <ul class="formula-card-list">${mkList(notes.base)}</ul>
+    </div>
+  `;
+  html += '</div>';
+  html += `<p class="formula-total-weight">總重量：${total} ${unit}</p>`;
+  return html;
+}
+
+// ======================= 狀態管理 & DOM 元素 =======================
 let currentQuestion = 0;
 let answers = [];
 let answerValues = []; // 儲存 A, B, C 值
 let currentAudio = null;
-let selectedMusicOption = null; // 新增：追蹤選中的音樂選項
+let selectedMusicOption = null;
 
-// DOM 元素
-const coverPage = document.getElementById('cover-page');
+const coverPage       = document.getElementById('cover-page');
 const questionContainer = document.getElementById('question-container');
 const resultContainer = document.getElementById('result-container');
-const questionTitle = document.getElementById('question-title');
-const questionText = document.getElementById('question-text');
-const scene = document.getElementById('scene');
-const musicPlayer = document.getElementById('music-player');
-const audioPlayer = document.getElementById('audio-player');
-const resultContent = document.getElementById('result-content');
-const restartBtn = document.getElementById('restart-btn');
+const questionTitle   = document.getElementById('question-title');
+const questionText    = document.getElementById('question-text');
+const scene           = document.getElementById('scene');
+const musicPlayer     = document.getElementById('music-player');
+const audioPlayer     = document.getElementById('audio-player');
+const resultContent   = document.getElementById('result-content');
+const restartBtn      = document.getElementById('restart-btn');
 
-// 封面頁面功能
+// ======================= 封面頁面功能 =======================
 function startGame() {
   coverPage.classList.add('hidden');
   questionContainer.classList.remove('hidden');
   showQuestion();
 }
 
-
-
-// 初始化
+// ======================= 初始化 =======================
 document.addEventListener('DOMContentLoaded', () => {
-  // 封面頁面點擊事件
   coverPage.addEventListener('click', startGame);
-  
-  // 重新開始按鈕事件
   restartBtn.addEventListener('click', restart);
 });
 
-// 顯示問題
+// ======================= 顯示問題 =======================
 function showQuestion() {
   if (currentQuestion >= questions.length) {
     showResult();
@@ -178,26 +338,18 @@ function showQuestion() {
   }
 
   const question = questions[currentQuestion];
-  
-  // 更新問題文字
   questionTitle.textContent = question.title;
-  // 處理換行和粗體格式
-  const formattedText = question.text
-    .replace(/\n/g, '<br>')
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  const formattedText = question.text.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
   questionText.innerHTML = formattedText;
-  
-  // 清除之前的內容
+
   scene.innerHTML = '';
   musicPlayer.classList.add('hidden');
-  
-  // 停止之前的音樂
+
   if (currentAudio) {
     audioPlayer.pause();
     currentAudio = null;
   }
-  
-  // 根據問題類型創建選項
+
   if (question.type === 'clickable') {
     createSVGScene(question);
   } else if (question.type === 'music') {
@@ -205,25 +357,20 @@ function showQuestion() {
   }
 }
 
-// 創建SVG場景
+// ======================= 創建SVG場景 =======================
 function createSVGScene(question) {
-  // 創建SVG命名空間
   const svgNS = 'http://www.w3.org/2000/svg';
-  
-  // 創建SVG元素
   const svg = document.createElementNS(svgNS, 'svg');
   svg.setAttribute('viewBox', `0 0 ${question.width} ${question.height}`);
   svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
   svg.classList.add('scene-svg');
-  
-  // 創建底圖
+
   const imgEl = document.createElementNS(svgNS, 'image');
   imgEl.setAttributeNS('http://www.w3.org/1999/xlink', 'href', question.image);
   imgEl.setAttribute('width', question.width);
   imgEl.setAttribute('height', question.height);
   svg.appendChild(imgEl);
-  
-  // 創建熱區
+
   question.options.forEach(option => {
     const rect = document.createElementNS(svgNS, 'rect');
     rect.setAttribute('x', option.x);
@@ -236,168 +383,119 @@ function createSVGScene(question) {
     rect.addEventListener('click', () => handleAnswer(option));
     svg.appendChild(rect);
   });
-  
-  // 為第2題添加SVG說明文字
+
   if (question.id === 2) {
     const instructionText = document.createElementNS(svgNS, 'text');
-    instructionText.setAttribute('x', '384'); // 圖片中央
-    instructionText.setAttribute('y', '650'); // 三個選擇的中間上方
+    instructionText.setAttribute('x', '384');
+    instructionText.setAttribute('y', '650');
     instructionText.setAttribute('text-anchor', 'middle');
     instructionText.setAttribute('font-family', '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif');
     instructionText.setAttribute('font-size', '20');
     instructionText.setAttribute('font-weight', 'bold');
-    instructionText.setAttribute('fill', 'white'); // 實白色
+    instructionText.setAttribute('fill', 'white');
     instructionText.textContent = '請選擇，你無法放手的珍寶';
     svg.appendChild(instructionText);
   }
-  
-  // 將SVG添加到場景中
+
   scene.appendChild(svg);
 }
 
-// 創建音樂選項
+// ======================= 創建音樂選項 =======================
 function createMusicOptions(question) {
-  // 先創建底圖SVG
   const svgNS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(svgNS, 'svg');
   svg.setAttribute('viewBox', `0 0 ${question.width} ${question.height}`);
   svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
   svg.classList.add('scene-svg');
-  
-  // 創建底圖
+
   const imgEl = document.createElementNS(svgNS, 'image');
   imgEl.setAttributeNS('http://www.w3.org/1999/xlink', 'href', question.image);
   imgEl.setAttribute('width', question.width);
   imgEl.setAttribute('height', question.height);
   svg.appendChild(imgEl);
-  
+
   scene.appendChild(svg);
-  
-  // 創建說明文字（使用HTML元素架構）
+
   const instructionText = document.createElement('div');
   instructionText.className = 'instruction-text';
   instructionText.textContent = '可選的按鍵,逐一聆聽:';
   scene.appendChild(instructionText);
-  
-  // 創建音樂選項容器
+
   const musicSelection = document.createElement('div');
   musicSelection.className = 'music-selection';
-  
+
   question.options.forEach(option => {
     const button = document.createElement('button');
     button.className = 'music-button';
     button.textContent = option.text;
-    button.addEventListener('click', () => handleMusicChoice(option));
+    button.addEventListener('click', (ev) => handleMusicChoice(option, ev.target));
     musicSelection.appendChild(button);
   });
-  
-  // 新增確認按鈕
+
   const confirmButton = document.createElement('button');
   confirmButton.className = 'confirm-button';
   confirmButton.textContent = '確認選擇';
-  confirmButton.disabled = true; // 初始時禁用
+  confirmButton.disabled = true;
   confirmButton.addEventListener('click', confirmMusicSelection);
-  
+
   scene.appendChild(musicSelection);
   scene.appendChild(confirmButton);
-  
-  // 確保確認按鈕可見
+
   setTimeout(() => {
     confirmButton.scrollIntoView({ block: 'end', behavior: 'smooth' });
   }, 100);
 }
 
-// 處理答案選擇
+// ======================= 處理答案選擇 =======================
 function handleAnswer(option) {
-  // 添加點擊動畫
   const clickedArea = document.querySelector(`[data-option="${option.id}"]`);
-  if (clickedArea) {
-    clickedArea.classList.add('clicked');
-  }
-  
-  // 記錄答案
-  answers.push({
-    question: questions[currentQuestion].title,
-    answer: option.text
-  });
-  answerValues.push(option.value); // 記錄 A, B, C 值
-  
-  // 延遲後進入下一題
+  if (clickedArea) clickedArea.classList.add('clicked');
+
+  answers.push({ question: questions[currentQuestion].title, answer: option.text });
+  answerValues.push(option.value);
+
   setTimeout(() => {
     currentQuestion++;
     showQuestion();
   }, 500);
 }
 
-// 處理音樂選擇
-function handleMusicChoice(option) {
-  // 如果正在播放其他音樂，先停止
+// ======================= 處理音樂選擇 =======================
+function handleMusicChoice(option, btnEl) {
   if (currentAudio) {
     audioPlayer.pause();
-    document.querySelectorAll('.music-button').forEach(btn => {
-      btn.classList.remove('playing');
-      btn.classList.remove('selected'); // 移除選中狀態
-    });
+    document.querySelectorAll('.music-button').forEach(btn => btn.classList.remove('playing', 'selected'));
   }
-  
-  // 更新音樂播放器
+
   audioPlayer.src = option.audio;
-  
-  // 標記正在播放和選中的按鈕
-  event.target.classList.add('playing');
-  event.target.classList.add('selected');
-  
-  // 播放音樂
+  btnEl.classList.add('playing', 'selected');
   audioPlayer.play();
   currentAudio = option.audio;
-  
-  // 記錄選中的選項（但還不記錄答案）
   selectedMusicOption = option;
-  
-  // 啟用確認按鈕
+
   const confirmButton = document.querySelector('.confirm-button');
-  if (confirmButton) {
-    confirmButton.disabled = false;
-  }
+  if (confirmButton) confirmButton.disabled = false;
 }
 
-// 新增：確認音樂選擇
 function confirmMusicSelection() {
   if (!selectedMusicOption) return;
-  
-  // 記錄答案
-  answers.push({
-    question: questions[currentQuestion].title,
-    answer: selectedMusicOption.text
-  });
-  answerValues.push(selectedMusicOption.value); // 記錄 A, B, C 值
-  
-  // 停止音樂
-  if (currentAudio) {
-    audioPlayer.pause();
-  }
-  
-  // 重置選擇狀態
+  answers.push({ question: questions[currentQuestion].title, answer: selectedMusicOption.text });
+  answerValues.push(selectedMusicOption.value);
+  if (currentAudio) audioPlayer.pause();
   selectedMusicOption = null;
-  
-  // 進入下一題
   currentQuestion++;
   showQuestion();
 }
 
-// 顯示結果
+// ======================= 顯示結果 =======================
 function showResult() {
   questionContainer.classList.add('hidden');
   resultContainer.classList.remove('hidden');
-  
-  // 停止音樂
-  if (currentAudio) {
-    audioPlayer.pause();
-  }
-  
-  // 生成選擇結果
+
+  if (currentAudio) audioPlayer.pause();
+
   let resultHTML = '';
-  answers.forEach((answer, index) => {
+  answers.forEach((answer) => {
     resultHTML += `
       <div class="choice-item">
         <h3>${answer.question}</h3>
@@ -405,8 +503,7 @@ function showResult() {
       </div>
     `;
   });
-  
-  // 添加命名輸入區
+
   resultHTML += `
     <div class="perfume-naming">
       <h3>為你的香水命名</h3>
@@ -414,153 +511,101 @@ function showResult() {
       <button id="generate-perfume-btn" class="generate-btn">生成配方卡</button>
     </div>
   `;
-  
-  // 添加配方卡容器（初始隱藏）
+
   resultHTML += '<div id="perfume-card-container" class="hidden"></div>';
-  
   resultContent.innerHTML = resultHTML;
-  
-  // 添加事件監聽器
+
   document.getElementById('generate-perfume-btn').addEventListener('click', generatePerfumeCard);
 }
 
-// 重新開始
+// ======================= 重新開始 =======================
 function restart() {
   currentQuestion = 0;
   answers = [];
   answerValues = [];
   currentAudio = null;
-  selectedMusicOption = null; // 重置選擇狀態
-  
+  selectedMusicOption = null;
+
   questionContainer.classList.add('hidden');
   resultContainer.classList.add('hidden');
   coverPage.classList.remove('hidden');
 }
 
-// 生成配方卡
+// ======================= 生成配方卡（命名±5%→1dp→作答±5%→1dp→ml） =======================
 function generatePerfumeCard() {
   const perfumeName = document.getElementById('perfume-name-input').value.trim();
-  
-  if (!perfumeName) {
-    alert('請輸入香水名稱！');
-    return;
-  }
-  
-  // 計算香水配方
+  if (!perfumeName) { alert('請輸入香水名稱！'); return; }
+
   try {
-    const perfumeResult = getPerfumeFormula(answerValues);
-    
-    // 生成配方卡HTML
+    // 1) 命名帶來的中/後調 ±5% 微調 → 先正規化到 1 位小數
+    const nameAdj = getNameAdjustments(perfumeName);
+    let baseRatio = { top: 20, heart: 50 + nameAdj.heartDelta, base: 30 + nameAdj.baseDelta };
+    baseRatio = normalizeRatiosTo1dp(baseRatio);
+
+    // 2) 依「答案 + 命名後基準」計算比例與 ml（內含再次 1 位小數正規化）
+    const perfumeResult = getPerfumeFormula(answerValues, 6, baseRatio);
+
+    // 3) 組內偏好分配（茶/wood/花等，僅調整該組內各材料 ml 分配）
+    biasWithinGroupByName(perfumeName, perfumeResult.notes, perfumeResult.weights);
+
+    // 4) 分析式 Summary（不含答案原因）
+    const richSummaryHTML = buildResultSummary(perfumeResult, perfumeName, nameAdj);
+
+    // 5) 卡片輸出
     const cardHTML = `
       <div id="perfume-card" class="perfume-card">
         <div class="card-header">
           <h2>${perfumeName}</h2>
           <p class="card-subtitle">專屬配方卡</p>
         </div>
-        
+
         <div class="card-content">
           ${renderCardFormula(perfumeResult)}
+          <div class="card-summary">
+            <h4>結果說明</h4>
+            ${richSummaryHTML}
+          </div>
         </div>
-        
+
         <div class="card-footer">
           <p class="creation-date">創建於 ${new Date().toLocaleDateString('zh-TW')}</p>
           <p class="card-signature">21C@JC-JCISC</p>
         </div>
       </div>
-      
+
       <div class="share-buttons">
-        <button id="copy-link-btn" class="share-btn">
-          <span class="icon">🔗</span> 複製連結
-        </button>
-        <button id="download-png-btn" class="share-btn">
-          <span class="icon">📷</span> 下載圖片
-        </button>
-        <button id="share-fb-btn" class="share-btn">
-          <span class="icon">📱</span> 分享到 Facebook
-        </button>
+        <button id="copy-link-btn" class="share-btn"><span class="icon">🔗</span> 複製連結</button>
+        <button id="download-png-btn" class="share-btn"><span class="icon">📷</span> 下載圖片</button>
+        <button id="share-fb-btn" className="share-btn"><span class="icon">📱</span> 分享到 Facebook</button>
       </div>
     `;
-    
-    // 顯示配方卡
+
     const cardContainer = document.getElementById('perfume-card-container');
     cardContainer.innerHTML = cardHTML;
     cardContainer.classList.remove('hidden');
-    
-    // 隱藏命名區域
+
     document.querySelector('.perfume-naming').style.display = 'none';
-    
-    // 綁定分享按鈕事件
+
     document.getElementById('copy-link-btn').addEventListener('click', copyLink);
     document.getElementById('download-png-btn').addEventListener('click', downloadPNG);
     document.getElementById('share-fb-btn').addEventListener('click', shareToFacebook);
-    
-    // 滾動到配方卡
+
     cardContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    
   } catch (error) {
     console.error('配方生成錯誤:', error);
     alert('配方生成失敗，請重試！');
   }
 }
 
-// 渲染配方卡專用格式
-function renderCardFormula(result) {
-  const { notes, ratio, weights, total } = result;
-  
-  let html = '<div class="formula-grid">';
-  
-  // 前調
-  html += `
-    <div class="formula-card-section">
-      <h4>前調 ${ratio.top}%</h4>
-      <ul class="formula-card-list">
-        ${notes.top.map(mat => 
-          `<li><span class="material-name">${mat}</span><span class="material-weight">${weights[mat].toFixed(3)}g</span></li>`
-        ).join('')}
-      </ul>
-    </div>
-  `;
-  
-  // 中調
-  html += `
-    <div class="formula-card-section">
-      <h4>中調 ${ratio.heart}%</h4>
-      <ul class="formula-card-list">
-        ${notes.heart.map(mat => 
-          `<li><span class="material-name">${mat}</span><span class="material-weight">${weights[mat].toFixed(3)}g</span></li>`
-        ).join('')}
-      </ul>
-    </div>
-  `;
-  
-  // 後調
-  html += `
-    <div class="formula-card-section">
-      <h4>後調 ${ratio.base}%</h4>
-      <ul class="formula-card-list">
-        ${notes.base.map(mat => 
-          `<li><span class="material-name">${mat}</span><span class="material-weight">${weights[mat].toFixed(3)}g</span></li>`
-        ).join('')}
-      </ul>
-    </div>
-  `;
-  
-  html += '</div>';
-  html += `<p class="formula-total-weight">總重量：${total} g</p>`;
-  
-  return html;
-}
-
-// 複製連結
+// ======================= 分享 / 下載 =======================
 function copyLink() {
   const perfumeName = document.getElementById('perfume-name-input').value.trim();
   const url = window.location.href;
   const shareText = `我創造了專屬香水「${perfumeName}」！來試試創造你的香水故事：${url}`;
-  
+
   navigator.clipboard.writeText(shareText).then(() => {
     showToast('連結已複製！');
   }).catch(() => {
-    // 降級方案
     const textArea = document.createElement('textarea');
     textArea.value = shareText;
     document.body.appendChild(textArea);
@@ -571,21 +616,13 @@ function copyLink() {
   });
 }
 
-// 下載PNG
 async function downloadPNG() {
   const perfumeCard = document.getElementById('perfume-card');
   const perfumeName = document.getElementById('perfume-name-input').value.trim();
-  
+
   try {
     showToast('正在生成圖片...');
-    
-    const canvas = await html2canvas(perfumeCard, {
-      backgroundColor: '#1a1a2e',
-      scale: 2,
-      logging: false
-    });
-    
-    // 轉換為圖片並下載
+    const canvas = await html2canvas(perfumeCard, { backgroundColor: '#1a1a2e', scale: 2, logging: false });
     canvas.toBlob((blob) => {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -601,34 +638,25 @@ async function downloadPNG() {
   }
 }
 
-// 分享到Facebook
 function shareToFacebook() {
   const perfumeName = document.getElementById('perfume-name-input').value.trim();
   const url = encodeURIComponent(window.location.href);
   const text = encodeURIComponent(`我創造了專屬香水「${perfumeName}」！`);
-  
   const fbShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${url}&quote=${text}`;
   window.open(fbShareUrl, '_blank', 'width=600,height=400');
 }
 
-// 顯示提示訊息
+// ======================= Toast =======================
 function showToast(message) {
-  // 移除現有的toast
   const existingToast = document.querySelector('.toast');
-  if (existingToast) {
-    existingToast.remove();
-  }
-  
-  // 創建新的toast
+  if (existingToast) existingToast.remove();
+
   const toast = document.createElement('div');
   toast.className = 'toast';
   toast.textContent = message;
   document.body.appendChild(toast);
-  
-  // 顯示動畫
+
   setTimeout(() => toast.classList.add('show'), 10);
-  
-  // 3秒後隱藏
   setTimeout(() => {
     toast.classList.remove('show');
     setTimeout(() => toast.remove(), 300);
