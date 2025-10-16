@@ -50,13 +50,11 @@ const TOP_NOTE_MAP = {
   B: ['無花果', '白葡萄酒'],
   C: ['含羞草', '伯爵茶']
 };
-
 const HEART_NOTE_MAP = {
   A: ['小蒼蘭', '金銀花'],
   B: ['橙花', '茉莉花'],
   C: ['天竺葵', '青草', '海洋']
 };
-
 const BASE_NOTE_MAP = {
   A: ['檀香木', '白麝香'],
   B: ['零陵香豆', '香草'],
@@ -64,44 +62,40 @@ const BASE_NOTE_MAP = {
 };
 
 // ======================= 命名微調（群組比例 ±5%） =======================
-// 深沉/夜/木質/茶：後調+5%、中調-5% ；海洋/清新/花：中調+5%、後調-5% ；其餘 0%
 function getNameAdjustments(perfumeName) {
   const deepKeys  = ['夜', '黑', 'noir', 'wood', '木', '檀', '茶', 'zen'];
   const freshKeys = ['海', 'wave', '潮', 'ocean', 'blue', '花', 'bloom', 'light', '清'];
-
   const hasDeep  = deepKeys.some(k => perfumeName.includes(k));
   const hasFresh = freshKeys.some(k => perfumeName.includes(k));
-
   if (hasDeep && !hasFresh) return { heartDelta: -5, baseDelta: +5 };
   if (hasFresh && !hasDeep) return { heartDelta: +5, baseDelta: -5 };
   return { heartDelta: 0, baseDelta: 0 };
 }
 
-// ======================= 命名微調（組內「各香味」可至 ±10%） =======================
+// ======================= 命名微調（組內「各香味」±5%） =======================
 function getNameMaterialBias(perfumeName) {
   const name = perfumeName.toLowerCase();
   const bias = {};
-  const add = (mat, delta) => { bias[mat] = clamp1dp((bias[mat] || 0) + delta, -10.0, 10.0); };
+  const add = (m, d) => { bias[m] = clamp1dp((bias[m] || 0) + d, -5.0, 5.0); };
 
-  if (perfumeName.includes('茶') || name.includes('tea'))       add('鐵觀音', 6.0);
-  if (perfumeName.includes('木') || name.includes('wood'))      add('檀香木', 6.0);
-  if (perfumeName.includes('花') || name.includes('bloom'))    { add('茉莉花', 5.0); add('小蒼蘭', 4.0); }
-  if (name.includes('citrus') || perfumeName.includes('檸'))    add('香檸檬', 6.0);
-  if (name.includes('fig') || perfumeName.includes('無花果'))    add('無花果', 6.0);
-  if (name.includes('wine') || perfumeName.includes('酒'))       add('白葡萄酒', 6.0);
-  if (name.includes('osmanthus') || perfumeName.includes('桂'))  add('桂花', 6.0);
-  if (name.includes('musk') || perfumeName.includes('麝'))     { add('白麝香', 5.0); add('麝香', 5.0); }
-  if (name.includes('vanilla') || perfumeName.includes('香草'))  add('香草', 6.0);
-  if (name.includes('tonka') || perfumeName.includes('零陵香豆')) add('零陵香豆', 6.0);
-  if (name.includes('ocean') || perfumeName.includes('海'))      add('海洋', 6.0);
+  if (perfumeName.includes('茶') || name.includes('tea'))       add('鐵觀音', 5.0);
+  if (perfumeName.includes('木') || name.includes('wood'))      add('檀香木', 5.0);
+  if (perfumeName.includes('花') || name.includes('bloom'))    { add('茉莉花', 3.0); add('小蒼蘭', 2.0); }
+  if (name.includes('citrus') || perfumeName.includes('檸'))    add('香檸檬', 5.0);
+  if (name.includes('fig') || perfumeName.includes('無花果'))    add('無花果', 5.0);
+  if (name.includes('wine') || perfumeName.includes('酒'))       add('白葡萄酒', 5.0);
+  if (name.includes('osmanthus') || perfumeName.includes('桂'))  add('桂花', 5.0);
+  if (name.includes('musk') || perfumeName.includes('麝'))     { add('白麝香', 3.0); add('麝香', 3.0); }
+  if (name.includes('vanilla') || perfumeName.includes('香草'))  add('香草', 5.0);
+  if (name.includes('tonka') || perfumeName.includes('零陵香豆')) add('零陵香豆', 5.0);
+  if (name.includes('ocean') || perfumeName.includes('海'))      add('海洋', 5.0);
 
   return bias;
 }
 
-// ======================= 作答 → 群組比例（±5% 以內） =======================
+// ======================= 依作答：群組比例微調（±5% 以內） =======================
 function getAnswerGroupAdjustments(answerValues) {
   const delta = { top: 0, heart: 0, base: 0 };
-
   const q1 = (answerValues[0] || '').toUpperCase();
   if (q1 === 'A') { delta.top += 5; }
   else if (q1 === 'B') { delta.heart += 3; delta.base += 2; }
@@ -120,36 +114,35 @@ function getAnswerGroupAdjustments(answerValues) {
   return delta;
 }
 
-// ======================= 作答 → 組內材料偏好（合併可至 ±10%） =======================
+// ======================= 依作答：組內材料偏好（±5% 以內） =======================
 function getAnswerMaterialBias(answerValues) {
   const bias = {};
-  const add = (mat, delta) => { bias[mat] = clamp1dp((bias[mat] || 0) + delta, -10.0, 10.0); };
+  const add = (m, d) => { bias[m] = clamp1dp((bias[m] || 0) + d, -5.0, 5.0); };
 
   const q1 = (answerValues[0] || '').toUpperCase();
-  if (q1 === 'A') { add('香檸檬', 4.0); add('桂花', 3.0); }
-  if (q1 === 'B') { add('無花果', 4.0); add('白葡萄酒', 3.0); }
-  if (q1 === 'C') { add('含羞草', 4.0); add('伯爵茶', 3.0); }
+  if (q1 === 'A') { add('香檸檬', 3.0); add('桂花', 2.0); }
+  if (q1 === 'B') { add('無花果', 3.0); add('白葡萄酒', 2.0); }
+  if (q1 === 'C') { add('含羞草', 3.0); add('伯爵茶', 2.0); }
 
   const q2 = (answerValues[1] || '').toUpperCase();
-  if (q2 === 'A') { add('小蒼蘭', 4.0); add('金銀花', 3.0); }
-  if (q2 === 'B') { add('橙花', 4.0); add('茉莉花', 3.0); }
-  if (q2 === 'C') { add('天竺葵', 4.0); add('青草', 3.0); /* 海洋保持中性，交由命名傾向補強 */ }
+  if (q2 === 'A') { add('小蒼蘭', 3.0); add('金銀花', 2.0); }
+  if (q2 === 'B') { add('橙花', 3.0); add('茉莉花', 2.0); }
+  if (q2 === 'C') { add('天竺葵', 3.0); add('青草', 2.0); /* 海洋當平衡 */ }
 
   const q3 = (answerValues[2] || '').toUpperCase();
-  if (q3 === 'A') { add('白麝香', 4.0); add('檀香木', 3.0); }
-  if (q3 === 'B') { add('香草', 4.0); add('零陵香豆', 3.0); }
-  if (q3 === 'C') { add('麝香', 4.0); add('鐵觀音', 3.0); }
+  if (q3 === 'A') { add('白麝香', 3.0); add('檀香木', 2.0); }
+  if (q3 === 'B') { add('香草', 3.0); add('零陵香豆', 2.0); }
+  if (q3 === 'C') { add('麝香', 3.0); add('鐵觀音', 2.0); }
 
   return bias;
 }
 
-// ======================= 工具：1位小數 clamp/正規化 & 柔化到相近比例 =======================
+// ======================= 工具：1位小數 clamp 與正規化 =======================
 function clamp1dp(v, min, max) {
   const r = Math.max(min, Math.min(max, v));
   return Math.round(r * 10) / 10;
 }
 
-// 群組比例（前/中/後）正規化到 100.0%，各取 1 位小數
 function normalizeRatiosTo1dp(r) {
   const sumRaw = r.top + r.heart + r.base;
   let rt = {
@@ -170,20 +163,6 @@ function normalizeRatiosTo1dp(r) {
   return rt;
 }
 
-// 將比例朝平均(≈33/33/33)柔化，讓三調更接近彼此
-function getEqualTarget() {
-  return { top: 33.3, heart: 33.3, base: 33.4 }; // 總和 100.0
-}
-function blendRatiosToSimilar(r, strength = 0.6, target = getEqualTarget()) {
-  const out = {
-    top:   r.top   * (1 - strength) + target.top   * strength,
-    heart: r.heart * (1 - strength) + target.heart * strength,
-    base:  r.base  * (1 - strength) + target.base  * strength,
-  };
-  return normalizeRatiosTo1dp(out);
-}
-
-// 組內材料分配正規化到 100.0%，各取 1 位小數
 function normalizeMaterialDistTo1dp(obj) {
   const mats = Object.keys(obj);
   if (mats.length === 0) return obj;
@@ -200,22 +179,17 @@ function normalizeMaterialDistTo1dp(obj) {
   return dist;
 }
 
-// 建立某一組的材料分配（允許合併到 ±10%/material），1 位小數，組內總 100%
 function buildGroupMaterialDistribution(materials, answerMatBias, nameMatBias) {
   if (!materials || materials.length === 0) return {};
   const baseEach = +(100 / materials.length).toFixed(1);
   let raw = {};
   materials.forEach(m => raw[m] = baseEach);
 
-  const add = (m, d) => {
-    raw[m] = raw[m] ?? baseEach;
-    // 單支可在基準上 ±10%，最後還會正規化到 100%
-    raw[m] = clamp1dp(raw[m] + clamp1dp(d, -10.0, 10.0), 0, 100);
-  };
+  const add = (m, d) => { raw[m] = clamp1dp((raw[m] ?? baseEach) + d, 0, 100); };
 
   materials.forEach(m => {
-    if (answerMatBias[m]) add(m, answerMatBias[m]);
-    if (nameMatBias[m])   add(m, nameMatBias[m]);
+    if (answerMatBias[m]) add(m, clamp1dp(answerMatBias[m], -5.0, 5.0));
+    if (nameMatBias[m])   add(m, clamp1dp(nameMatBias[m],   -5.0, 5.0));
   });
 
   return normalizeMaterialDistTo1dp(raw);
@@ -234,10 +208,9 @@ function getPerfumeFormula(answerValues, totalG = 6, ratioOverride = null, perfu
     base:  BASE_NOTE_MAP[q3]  || []
   };
 
-  // 1) 群組比例：基準→命名±5%→答案±5%→1dp→柔化到相近比例
+  // 1) 群組比例：基準→命名±5%→答案±5%→正規化(1dp)
   let ratio = ratioOverride || { top: 20, heart: 50, base: 30 };
   ratio = normalizeRatiosTo1dp(ratio);
-
   const ansGrp = getAnswerGroupAdjustments(answerValues);
   ratio = normalizeRatiosTo1dp({
     top:   ratio.top   + ansGrp.top,
@@ -245,27 +218,23 @@ function getPerfumeFormula(answerValues, totalG = 6, ratioOverride = null, perfu
     base:  ratio.base  + ansGrp.base
   });
 
-  // 讓三調差不多（但仍保留命名/作答的方向）
-  ratio = blendRatiosToSimilar(ratio, 0.6);
-
-  // 2) 組內材料分配：均分→(作答±/命名±)合併到最多 ±10%/material→1dp 正規化
+  // 2) 組內材料分配（均分 → 命名/作答偏好 ±5% → 正規化 1dp）
   const ansMatBias  = getAnswerMaterialBias(answerValues);
   const nameMatBias = getNameMaterialBias(perfumeNameForMaterials);
   const distTop   = buildGroupMaterialDistribution(notes.top,   ansMatBias, nameMatBias);
   const distHeart = buildGroupMaterialDistribution(notes.heart, ansMatBias, nameMatBias);
   const distBase  = buildGroupMaterialDistribution(notes.base,  ansMatBias, nameMatBias);
 
-  // 3) 轉成 g（材料顯示 0.1 g）
+  // 3) 轉成 g（材料顯示到 0.1 g）
   const groupG = {
     top:   +(totalG * ratio.top   / 100).toFixed(3),
     heart: +(totalG * ratio.heart / 100).toFixed(3),
     base:  +(totalG * ratio.base  / 100).toFixed(3),
   };
-
   const weights = {};
   const assign = (dist, groupKey) => {
     Object.entries(dist).forEach(([mat, pct]) => {
-      const g = +(groupG[groupKey] * (pct / 100)).toFixed(1); // 材料數值至 0.1 g
+      const g = +(groupG[groupKey] * (pct / 100)).toFixed(1); // 0.1 g
       weights[mat] = g;
     });
   };
@@ -280,22 +249,18 @@ function getPerfumeFormula(answerValues, totalG = 6, ratioOverride = null, perfu
 function renderPerfumeFormula(result) {
   const { notes, ratio, weights, total, unit } = result;
   const listHtml = (arr) => arr.map(mat => `<li>${mat}：${(weights[mat] ?? 0).toFixed(1)} ${unit}</li>`).join('');
-
   return `
     <div class="perfume-formula">
       <h3>✨ 你的專屬香水配方 ✨</h3>
       <p class="formula-total">總重量：${total} ${unit}</p>
-
       <div class="formula-section">
         <h4>▸ 前調（${ratio.top.toFixed(1)}%）</h4>
         <ul class="formula-list">${listHtml(notes.top)}</ul>
       </div>
-
       <div class="formula-section">
         <h4>▸ 中調（${ratio.heart.toFixed(1)}%）</h4>
         <ul class="formula-list">${listHtml(notes.heart)}</ul>
       </div>
-
       <div class="formula-section">
         <h4>▸ 後調（${ratio.base.toFixed(1)}%）</h4>
         <ul class="formula-list">${listHtml(notes.base)}</ul>
@@ -304,13 +269,12 @@ function renderPerfumeFormula(result) {
   `;
 }
 
-// ======================= 配方卡渲染（無結果說明 / 無組內% / 材料 0.1 g） =======================
+// ======================= 配方卡渲染（不顯示組內%；材料到 0.1 g；無結果說明） =======================
 function renderCardFormula(result) {
   const { notes, ratio, weights, total, unit } = result;
   const mkList = (arr) => arr.map(mat =>
     `<li><span class="material-name">${mat}</span><span class="material-weight">${(weights[mat] ?? 0).toFixed(1)}${unit}</span></li>`
   ).join('');
-
   let html = '<div class="formula-grid">';
   html += `
     <div class="formula-card-section">
@@ -342,16 +306,16 @@ let answerValues = []; // 儲存 A, B, C 值
 let currentAudio = null;
 let selectedMusicOption = null;
 
-const coverPage       = document.getElementById('cover-page');
+const coverPage         = document.getElementById('cover-page');
 const questionContainer = document.getElementById('question-container');
-const resultContainer = document.getElementById('result-container');
-const questionTitle   = document.getElementById('question-title');
-const questionText    = document.getElementById('question-text');
-const scene           = document.getElementById('scene');
-const musicPlayer     = document.getElementById('music-player');
-const audioPlayer     = document.getElementById('audio-player');
-const resultContent   = document.getElementById('result-content');
-const restartBtn      = document.getElementById('restart-btn');
+const resultContainer   = document.getElementById('result-container');
+const questionTitle     = document.getElementById('question-title');
+const questionText      = document.getElementById('question-text');
+const scene             = document.getElementById('scene');
+const musicPlayer       = document.getElementById('music-player');
+const audioPlayer       = document.getElementById('audio-player');
+const resultContent     = document.getElementById('result-content');
+const restartBtn        = document.getElementById('restart-btn');
 
 // ======================= 封面頁面功能 =======================
 function startGame() {
@@ -502,7 +466,6 @@ function handleMusicChoice(option, btnEl) {
     audioPlayer.pause();
     document.querySelectorAll('.music-button').forEach(btn => btn.classList.remove('playing', 'selected'));
   }
-
   audioPlayer.src = option.audio;
   btnEl.classList.add('playing', 'selected');
   audioPlayer.play();
@@ -567,7 +530,7 @@ function restart() {
   coverPage.classList.remove('hidden');
 }
 
-// ======================= 生成配方卡（單位 g；材料 0.1 g；比例柔化；無結果說明） =======================
+// ======================= 生成配方卡（基於作答 + 命名的差異化結果） =======================
 function generatePerfumeCard() {
   const perfumeName = document.getElementById('perfume-name-input').value.trim();
   if (!perfumeName) { alert('請輸入香水名稱！'); return; }
@@ -578,10 +541,10 @@ function generatePerfumeCard() {
     let baseRatio = { top: 20, heart: 50 + nameAdj.heartDelta, base: 30 + nameAdj.baseDelta };
     baseRatio = normalizeRatiosTo1dp(baseRatio);
 
-    // 計算整體配方：群組比例（含柔化）+ 組內材料（可至 ±10%/material）
+    // 計算整體配方（含組內材料分配），總量固定 6 g
     const perfumeResult = getPerfumeFormula(answerValues, 6, baseRatio, perfumeName);
 
-    // 卡片輸出（不含結果說明、不顯示組內%）
+    // 卡片輸出（不含結果說明）
     const cardHTML = `
       <div id="perfume-card" class="perfume-card">
         <div class="card-header">
@@ -674,15 +637,14 @@ function shareToFacebook() {
 function showToast(message) {
   const existingToast = document.querySelector('.toast');
   if (existingToast) existingToast.remove();
-
   const toast = document.createElement('div');
   toast.className = 'toast';
   toast.textContent = message;
   document.body.appendChild(toast);
-
   setTimeout(() => toast.classList.add('show'), 10);
   setTimeout(() => {
     toast.classList.remove('show');
     setTimeout(() => toast.remove(), 300);
   }, 3000);
 }
+
