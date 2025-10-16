@@ -60,13 +60,10 @@ const HEART_NOTE_MAP = {
 const BASE_NOTE_MAP = {
   A: ['檀香木', '白麝香'],
   B: ['零陵香豆', '香草'],
-  C: ['鐵觀音', '麝香'] // 茶感
+  C: ['鐵觀音', '麝香']
 };
 
 // ======================= 命名微調（群組比例 ±5%） =======================
-// - 深沉/夜/木質/茶：後調+5%、中調-5%
-// - 海洋/清新/花感：中調+5%、後調-5%
-// 其餘 0%
 function getNameAdjustments(perfumeName) {
   const deepKeys  = ['夜', '黑', 'noir', 'wood', '木', '檀', '茶', 'zen'];
   const freshKeys = ['海', 'wave', '潮', 'ocean', 'blue', '花', 'bloom', 'light', '清'];
@@ -80,12 +77,9 @@ function getNameAdjustments(perfumeName) {
 }
 
 // ======================= 命名微調（組內「各香味」±5%） =======================
-// 傳回一個 map: { '香材名': deltaInGroupPct }，每支香材在其所屬組內最多 +5.0（或 0）
 function getNameMaterialBias(perfumeName) {
   const name = perfumeName.toLowerCase();
   const bias = {};
-
-  // 關鍵字 → 特定香材微調（+值代表在該組內增加比例）
   const add = (mat, delta) => { bias[mat] = clamp1dp((bias[mat] || 0) + delta, -5.0, 5.0); };
 
   if (perfumeName.includes('茶') || name.includes('tea'))       add('鐵觀音', 5.0);
@@ -103,23 +97,20 @@ function getNameMaterialBias(perfumeName) {
   return bias;
 }
 
-// ======================= 依「答案內容」計算群組比例微調（±5% 以內） =======================
+// ======================= 依作答：群組比例微調（±5% 以內） =======================
 function getAnswerGroupAdjustments(answerValues) {
   const delta = { top: 0, heart: 0, base: 0 };
 
-  // Q1：A亮開場(前+5), B穩定(中+3/後+2), C深沉(後+5)
   const q1 = (answerValues[0] || '').toUpperCase();
-  if (q1 === 'A') { delta.top   += 5; }
-  else if (q1 === 'B') { delta.heart += 3; delta.base  += 2; }
-  else if (q1 === 'C') { delta.base  += 5; }
+  if (q1 === 'A') { delta.top += 5; }
+  else if (q1 === 'B') { delta.heart += 3; delta.base += 2; }
+  else if (q1 === 'C') { delta.base += 5; }
 
-  // Q2：A柔軟(中+5), B條理(前+2/中+3), C記憶(後+3/中+2)
   const q2 = (answerValues[1] || '').toUpperCase();
   if (q2 === 'A') { delta.heart += 5; }
   else if (q2 === 'B') { delta.top += 2; delta.heart += 3; }
   else if (q2 === 'C') { delta.base += 3; delta.heart += 2; }
 
-  // Q3：A俏皮(前+3), B張力(後+5), C惆悵(後+3/中+2)
   const q3 = (answerValues[2] || '').toUpperCase();
   if (q3 === 'A') { delta.top += 3; }
   else if (q3 === 'B') { delta.base += 5; }
@@ -128,8 +119,7 @@ function getAnswerGroupAdjustments(answerValues) {
   return delta;
 }
 
-// ======================= 依「答案內容」計算組內材料偏好（±5% 以內） =======================
-// 讓該題對應的組內，首選香材+3.0，次選+2.0（若有第三支則 +0）
+// ======================= 依作答：組內材料偏好（±5% 以內） =======================
 function getAnswerMaterialBias(answerValues) {
   const bias = {};
   const add = (mat, delta) => { bias[mat] = clamp1dp((bias[mat] || 0) + delta, -5.0, 5.0); };
@@ -142,23 +132,22 @@ function getAnswerMaterialBias(answerValues) {
   const q2 = (answerValues[1] || '').toUpperCase();
   if (q2 === 'A') { add('小蒼蘭', 3.0); add('金銀花', 2.0); }
   if (q2 === 'B') { add('橙花', 3.0); add('茉莉花', 2.0); }
-  if (q2 === 'C') { add('天竺葵', 3.0); add('青草', 2.0); /* 海洋留 0 作平衡 */ }
+  if (q2 === 'C') { add('天竺葵', 3.0); add('青草', 2.0); }
 
   const q3 = (answerValues[2] || '').toUpperCase();
-  if (q3 === 'A') { add('白麝香', 3.0); /* A組實際在BASE_MAP.A，有兩支 */ add('檀香木', 2.0); }
+  if (q3 === 'A') { add('白麝香', 3.0); add('檀香木', 2.0); }
   if (q3 === 'B') { add('香草', 3.0); add('零陵香豆', 2.0); }
   if (q3 === 'C') { add('麝香', 3.0); add('鐵觀音', 2.0); }
 
   return bias;
 }
 
-// ======================= 1位小數 clamp 與正規化工具 =======================
+// ======================= 工具：1位小數 clamp 與正規化 =======================
 function clamp1dp(v, min, max) {
   const r = Math.max(min, Math.min(max, v));
   return Math.round(r * 10) / 10;
 }
 
-// 群組比例（前/中/後）正規化到 100.0%，各取 1 位小數
 function normalizeRatiosTo1dp(r) {
   const sumRaw = r.top + r.heart + r.base;
   let rt = {
@@ -174,55 +163,42 @@ function normalizeRatiosTo1dp(r) {
   const diff = +(100.0 - sum1dp).toFixed(1);
   if (diff !== 0) {
     const entries = [['top', rt.top], ['heart', rt.heart], ['base', rt.base]].sort((a,b)=>b[1]-a[1]);
-    const keyMax = entries[0][0];
-    rt[keyMax] = +(rt[keyMax] + diff).toFixed(1);
+    rt[entries[0][0]] = +(entries[0][1] + diff).toFixed(1);
   }
   return rt;
 }
 
-// 組內材料分配（各香味）正規化到 100.0%，各取 1 位小數
 function normalizeMaterialDistTo1dp(obj) {
-  // obj: { '香材名': dist(未正規化，可能含偏好) }
   const mats = Object.keys(obj);
   if (mats.length === 0) return obj;
-
   const sumRaw = mats.reduce((s, k) => s + obj[k], 0);
   let dist = {};
   mats.forEach(k => { dist[k] = sumRaw > 0 ? (obj[k] / sumRaw) * 100 : 100 / mats.length; });
-
   mats.forEach(k => { dist[k] = Math.round(dist[k] * 10) / 10; });
-
   let sum1dp = +(mats.reduce((s, k) => s + dist[k], 0)).toFixed(1);
   let diff = +(100.0 - sum1dp).toFixed(1);
   if (diff !== 0) {
-    // 把差值補到目前最大的那個材料
     const maxKey = mats.slice().sort((a,b)=>dist[b]-dist[a])[0];
     dist[maxKey] = +(dist[maxKey] + diff).toFixed(1);
   }
   return dist;
 }
 
-// 建立某一組的材料分配（含 ±5% 偏好，取 1 位小數，總和為該組的 100%）
 function buildGroupMaterialDistribution(materials, answerMatBias, nameMatBias) {
   if (!materials || materials.length === 0) return {};
-
-  // 先均分
   const baseEach = +(100 / materials.length).toFixed(1);
   let raw = {};
   materials.forEach(m => raw[m] = baseEach);
 
-  // 疊加偏好（每支上限 ±5.0）
   const add = (m, d) => {
     raw[m] = raw[m] ?? baseEach;
-    raw[m] = clamp1dp(raw[m] + d, 0, 100); // 單支不超界，最後會正規化
+    raw[m] = clamp1dp(raw[m] + d, 0, 100);
   };
-
   materials.forEach(m => {
     if (answerMatBias[m]) add(m, clamp1dp(answerMatBias[m], -5.0, 5.0));
     if (nameMatBias[m])   add(m, clamp1dp(nameMatBias[m],   -5.0, 5.0));
   });
 
-  // 正規化到 100.0%，各 1 位小數
   return normalizeMaterialDistTo1dp(raw);
 }
 
@@ -239,31 +215,24 @@ function getPerfumeFormula(answerValues, totalG = 6, ratioOverride = null, perfu
     base:  BASE_NOTE_MAP[q3]  || []
   };
 
-  // 1) 群組比例：基準 20/50/30 → 命名 ±5% → 答案 ±5% → 正規化到 1 位小數
+  // 1) 群組比例：基準→命名±5%→答案±5%→正規化(1dp)
   let ratio = ratioOverride || { top: 20, heart: 50, base: 30 };
-
-  // 命名微調（群組）
-  // （若外部已先做過可略，這裡保險再處理一次為 1dp）
   ratio = normalizeRatiosTo1dp(ratio);
-
-  // 答案微調（群組）
   const ansGrp = getAnswerGroupAdjustments(answerValues);
-  ratio = {
+  ratio = normalizeRatiosTo1dp({
     top:   ratio.top   + ansGrp.top,
     heart: ratio.heart + ansGrp.heart,
     base:  ratio.base  + ansGrp.base
-  };
-  ratio = normalizeRatiosTo1dp(ratio);
+  });
 
-  // 2) 組內各香味分配：均分 → 答案偏好 ±5% → 命名偏好 ±5% → 正規化到 1 位小數
+  // 2) 組內材料分配（±5%/支，1dp）
   const ansMatBias  = getAnswerMaterialBias(answerValues);
   const nameMatBias = getNameMaterialBias(perfumeNameForMaterials);
-
   const distTop   = buildGroupMaterialDistribution(notes.top,   ansMatBias, nameMatBias);
   const distHeart = buildGroupMaterialDistribution(notes.heart, ansMatBias, nameMatBias);
   const distBase  = buildGroupMaterialDistribution(notes.base,  ansMatBias, nameMatBias);
 
-  // 3) 依群組比例 → 轉 g → 再依組內分配到各香味（保留 3 位小數）
+  // 3) 轉成 g（材料顯示一律到小數 1 位）
   const groupG = {
     top:   +(totalG * ratio.top   / 100).toFixed(3),
     heart: +(totalG * ratio.heart / 100).toFixed(3),
@@ -273,7 +242,7 @@ function getPerfumeFormula(answerValues, totalG = 6, ratioOverride = null, perfu
   const weights = {};
   const assign = (dist, groupKey) => {
     Object.entries(dist).forEach(([mat, pct]) => {
-      const g = +(groupG[groupKey] * (pct / 100)).toFixed(3);
+      const g = +(groupG[groupKey] * (pct / 100)).toFixed(1); // ← 材料 1 位小數
       weights[mat] = g;
     });
   };
@@ -281,33 +250,13 @@ function getPerfumeFormula(answerValues, totalG = 6, ratioOverride = null, perfu
   assign(distHeart, 'heart');
   assign(distBase, 'base');
 
-  return { notes, ratio, weights, total: totalG, unit: 'g',
-           materialDist: { top: distTop, heart: distHeart, base: distBase }, groupG };
+  return { notes, ratio, weights, total: totalG, unit: 'g' };
 }
 
-// ======================= 分析式 Summary（不顯示答案原因） =======================
-function buildResultSummary(result, perfumeName, nameAdjInfo) {
-  const { ratio, total, groupG } = result;
-
-  const nameLine = (nameAdjInfo && (nameAdjInfo.heartDelta !== 0 || nameAdjInfo.baseDelta !== 0))
-    ? `「${perfumeName}」觸發命名偏好（${nameAdjInfo.reason}），比例隨之微調，更貼近你的氣味意象。`
-    : `命名未帶來額外偏好，本次比例主要根據你的直覺選擇而定。`;
-
-  const lines = [
-    `<p>${nameLine}</p>`,
-    `<p>層次分配：前調 ${ratio.top.toFixed(1)}%（${groupG.top} g）、中調 ${ratio.heart.toFixed(1)}%（${groupG.heart} g）、後調 ${ratio.base.toFixed(1)}%（${groupG.base} g），總量 ${total} g。</p>`
-  ];
-  return lines.join('');
-}
-
-// ======================= 一般配方區塊渲染（g 顯示） =======================
+// ======================= 一般配方區塊渲染（不顯示組內%；材料到 0.1 g） =======================
 function renderPerfumeFormula(result) {
-  const { notes, ratio, weights, total, unit, materialDist } = result;
-
-  const listHtml = (arr, dist) => arr.map(mat => {
-    const pctInGroup = dist[mat] !== undefined ? `（組內 ${dist[mat].toFixed(1)}%）` : '';
-    return `<li>${mat}：${(weights[mat] ?? 0).toFixed(3)} ${unit} ${pctInGroup}</li>`;
-  }).join('');
+  const { notes, ratio, weights, total, unit } = result;
+  const listHtml = (arr) => arr.map(mat => `<li>${mat}：${(weights[mat] ?? 0).toFixed(1)} ${unit}</li>`).join('');
 
   return `
     <div class="perfume-formula">
@@ -316,46 +265,46 @@ function renderPerfumeFormula(result) {
 
       <div class="formula-section">
         <h4>▸ 前調（${ratio.top.toFixed(1)}%）</h4>
-        <ul class="formula-list">${listHtml(notes.top, materialDist.top || {})}</ul>
+        <ul class="formula-list">${listHtml(notes.top)}</ul>
       </div>
 
       <div class="formula-section">
         <h4>▸ 中調（${ratio.heart.toFixed(1)}%）</h4>
-        <ul class="formula-list">${listHtml(notes.heart, materialDist.heart || {})}</ul>
+        <ul class="formula-list">${listHtml(notes.heart)}</ul>
       </div>
 
       <div class="formula-section">
         <h4>▸ 後調（${ratio.base.toFixed(1)}%）</h4>
-        <ul class="formula-list">${listHtml(notes.base, materialDist.base || {})}</ul>
+        <ul class="formula-list">${listHtml(notes.base)}</ul>
       </div>
     </div>
   `;
 }
 
-// ======================= 配方卡格式渲染（顯示 g + 比例1位小數 + 總重量6 g） =======================
+// ======================= 配方卡渲染（不顯示組內%；材料到 0.1 g；無結果說明） =======================
 function renderCardFormula(result) {
-  const { notes, ratio, weights, total, unit, materialDist } = result;
-  const mkList = (arr, dist) => arr.map(mat =>
-    `<li><span class="material-name">${mat}</span><span class="material-weight">${(weights[mat] ?? 0).toFixed(3)}${unit} <em class="subpct">（組內 ${dist[mat]?.toFixed(1) ?? '0.0'}%）</em></span></li>`
+  const { notes, ratio, weights, total, unit } = result;
+  const mkList = (arr) => arr.map(mat =>
+    `<li><span class="material-name">${mat}</span><span class="material-weight">${(weights[mat] ?? 0).toFixed(1)}${unit}</span></li>`
   ).join('');
 
   let html = '<div class="formula-grid">';
   html += `
     <div class="formula-card-section">
       <h4>前調 ${ratio.top.toFixed(1)}%</h4>
-      <ul class="formula-card-list">${mkList(notes.top, materialDist.top || {})}</ul>
+      <ul class="formula-card-list">${mkList(notes.top)}</ul>
     </div>
   `;
   html += `
     <div class="formula-card-section">
       <h4>中調 ${ratio.heart.toFixed(1)}%</h4>
-      <ul class="formula-card-list">${mkList(notes.heart, materialDist.heart || {})}</ul>
+      <ul class="formula-card-list">${mkList(notes.heart)}</ul>
     </div>
   `;
   html += `
     <div class="formula-card-section">
       <h4>後調 ${ratio.base.toFixed(1)}%</h4>
-      <ul class="formula-card-list">${mkList(notes.base, materialDist.base || {})}</ul>
+      <ul class="formula-card-list">${mkList(notes.base)}</ul>
     </div>
   `;
   html += '</div>';
@@ -595,39 +544,30 @@ function restart() {
   coverPage.classList.remove('hidden');
 }
 
-// ======================= 生成配方卡（群組±5%→1dp；材料±5%/組→1dp；單位 g） =======================
+// ======================= 生成配方卡（單位 g；材料 0.1 g；無結果說明） =======================
 function generatePerfumeCard() {
   const perfumeName = document.getElementById('perfume-name-input').value.trim();
   if (!perfumeName) { alert('請輸入香水名稱！'); return; }
 
   try {
-    // 1) 先做命名帶來的群組 ±5%（中/後調）→ 1 位小數
+    // 命名先對群組比例做 ±5%（中/後調）
     const nameAdj = getNameAdjustments(perfumeName);
     let baseRatio = { top: 20, heart: 50 + nameAdj.heartDelta, base: 30 + nameAdj.baseDelta };
     baseRatio = normalizeRatiosTo1dp(baseRatio);
 
-    // 2) 計算整體（群組比例 + 組內材料分配），總量固定 6 g
+    // 計算整體配方（含組內分配），總量固定 6 g
     const perfumeResult = getPerfumeFormula(answerValues, 6, baseRatio, perfumeName);
 
-    // 3) 生成 Summary（不顯示答案原因）
-    const richSummaryHTML = buildResultSummary(perfumeResult, perfumeName, nameAdj);
-
-    // 4) 卡片輸出
+    // 卡片輸出（不含結果說明）
     const cardHTML = `
       <div id="perfume-card" class="perfume-card">
         <div class="card-header">
           <h2>${perfumeName}</h2>
           <p class="card-subtitle">專屬配方卡</p>
         </div>
-
         <div class="card-content">
           ${renderCardFormula(perfumeResult)}
-          <div class="card-summary">
-            <h4>結果說明</h4>
-            ${richSummaryHTML}
-          </div>
         </div>
-
         <div class="card-footer">
           <p class="creation-date">創建於 ${new Date().toLocaleDateString('zh-TW')}</p>
           <p class="card-signature">21C@JC-JCISC</p>
