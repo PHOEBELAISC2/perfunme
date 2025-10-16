@@ -181,7 +181,7 @@
     }
   ];
 
-  // ---------- 香料對應表（你的指定） ----------
+  // ---------- 香料對應表 ----------
   const TOP_NOTE_MAP = {       // Q1：前調
     A: ['香檸檬', '桂花'],
     B: ['無花果', '白葡萄酒'],
@@ -381,17 +381,15 @@
   // ---------- 由選項 → 標籤（氣質） ----------
   function tagsFromChoices(q1,q2,q3){
     const t={citrus:false,floral:false,woody:false,sweet:false,musk:false,aquatic:false,green:false,tea:false};
-    // Q1（場景）直覺：A=門→明亮/開放；B=綠牆通道→green/潮濕；C=地下→茶/麝/木
+    // Q1 場景
     if (q1==='A') { t.citrus=true; }
     if (q1==='B') { t.green=true;  t.aquatic=true; }
     if (q1==='C') { t.tea=true;    t.musk=true; t.woody=true; }
-
-    // Q2（抱住的物件）：A=布偶→甜/溫暖；B=筆記本→清新/理性；C=照片→麝香/懷舊
+    // Q2 物件
     if (q2==='A') { t.sweet=true; }
     if (q2==='B') { t.green=true; }
     if (q2==='C') { t.musk=true; }
-
-    // Q3（音樂）：A=Pink Soldiers→冷冽張力：提升top或麝；B=Rope is Tied→低沈：base/麝；C=Way Back Then→溫暖敞開：heart/floral
+    // Q3 音樂
     if (q3==='A') { t.citrus=true; t.musk=true; }
     if (q3==='B') { t.musk=true;   t.woody=true; }
     if (q3==='C') { t.floral=true; }
@@ -418,25 +416,21 @@
   }
 
   // ---------- 選項 → 具體香材偏好（同組內傾斜目標） ----------
-  // 只在該組確有該材料時才會加權
   const CHOICE_FOCUS = {
-    // Q1 決定 top 組材料的傾向
     Q1: {
-      A: ['香檸檬','桂花'],           // 門後 → 清新明亮
-      B: ['無花果','白葡萄酒'],       // 綠牆通道 → 果香潮濕
-      C: ['含羞草','伯爵茶']          // 地下 → 暖粉感與茶感
+      A: ['香檸檬','桂花'],
+      B: ['無花果','白葡萄酒'],
+      C: ['含羞草','伯爵茶']
     },
-    // Q2 決定 heart 組材料的傾向
     Q2: {
-      A: ['小蒼蘭','金銀花'],         // 布偶 → 柔和花香
-      B: ['橙花','茉莉花'],           // 筆記本 → 乾淨白花
-      C: ['天竺葵','青草','海洋']     // 照片 → 青綠/海風
+      A: ['小蒼蘭','金銀花'],
+      B: ['橙花','茉莉花'],
+      C: ['天竺葵','青草','海洋']
     },
-    // Q3 決定 base 組材料的傾向
     Q3: {
-      A: ['白麝香','檀香木'],         // 緊張冷冽 → 乾淨麝香+一點木
-      B: ['麝香','檀香木','香草'],    // 低沈 → 麝+木，略甜潤
-      C: ['鐵觀音','禪茶','零陵香豆'] // 溫暖復古 → 茶與微甜
+      A: ['白麝香','檀香木'],
+      B: ['麝香','檀香木','香草'],
+      C: ['鐵觀音','禪茶','零陵香豆']
     }
   };
 
@@ -444,7 +438,7 @@
   function applyRatioNudges(baseRatio, tagFromName, tagFromChoices){
     let r = {...baseRatio};
 
-    // 先用選項標籤（反映行為偏好）
+    // 先用選項標籤
     if (tagFromChoices.woody || tagFromChoices.musk) r = shiftRatio(r,'top','base',5);
     if (tagFromChoices.citrus)                        r = shiftRatio(r,'base','top',5);
     if (tagFromChoices.floral)                        r = shiftRatio(r,'base','heart',5);
@@ -452,7 +446,7 @@
     if (tagFromChoices.sweet)                         r = shiftRatio(r,'heart','base',3);
     if (tagFromChoices.tea)                           r = shiftRatio(r,'base','top',2);
 
-    // 再用名稱標籤（更細緻主題）
+    // 再用名稱標籤
     if (tagFromName.woody || tagFromName.musk) r = shiftRatio(r,'top','base',3);
     if (tagFromName.citrus)                    r = shiftRatio(r,'base','top',3);
     if (tagFromName.floral)                    r = shiftRatio(r,'base','heart',3);
@@ -460,7 +454,7 @@
     if (tagFromName.sweet)                     r = shiftRatio(r,'heart','base',2);
     if (tagFromName.tea)                       r = shiftRatio(r,'base','top',1);
 
-    // 防守性夾限與正規化
+    // 夾限與正規化
     const clamp = v => Math.max(5, Math.min(80, v));
     r.top=clamp(r.top); r.heart=clamp(r.heart); r.base=clamp(r.base);
     const s=r.top+r.heart+r.base;
