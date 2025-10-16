@@ -61,34 +61,80 @@ const BASE_NOTE_MAP = {
   C: ['鐵觀音', '麝香']
 };
 
-// ======================= 命名微調（群組比例 ±5%） =======================
+// ======== 所有可能材料（供命名偏好用；組內會自動忽略不存在的） ========
+const ALL_MATERIALS = Array.from(new Set(
+  Object.values(TOP_NOTE_MAP).flat()
+  .concat(Object.values(HEART_NOTE_MAP).flat())
+  .concat(Object.values(BASE_NOTE_MAP).flat())
+));
+
+// ======================= 工具：字串哈希 + 穩定 PRNG（Mulberry32） =======================
+function hashString(str) {
+  let h = 1779033703 ^ str.length;
+  for (let i = 0; i < str.length; i++) {
+    h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+  return (h >>> 0);
+}
+function mulberry32(seed) {
+  return function() {
+    let t = seed += 0x6D2B79F5;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296; // [0,1)
+  };
+}
+// 取得穩定隨機：傳回 [-1,1) 或 [a,b]
+function randSigned01(rng){ return rng()*2 - 1; }
+function randRange(rng, a, b){ return a + (b - a) * rng(); }
+
+// ======================= 命名微調（任何名稱都有效） =======================
+// 1) 群組比例：依名稱穩定產生 heart/base 的偏移（±5.0%），top 由正規化補足
 function getNameAdjustments(perfumeName) {
-  const deepKeys  = ['夜', '黑', 'noir', 'wood', '木', '檀', '茶', 'zen'];
-  const freshKeys = ['海', 'wave', '潮', 'ocean', 'blue', '花', 'bloom', 'light', '清'];
-  const hasDeep  = deepKeys.some(k => perfumeName.includes(k));
-  const hasFresh = freshKeys.some(k => perfumeName.includes(k));
-  if (hasDeep && !hasFresh) return { heartDelta: -5, baseDelta: +5 };
-  if (hasFresh && !hasDeep) return { heartDelta: +5, baseDelta: -5 };
-  return { heartDelta: 0, baseDelta: 0 };
+  const seed = hashString(perfumeName.toLowerCase().trim());
+  const rng = mulberry32(seed);
+
+  // 讓短名不致過強：根據母音比例縮放（更「柔和/抒情」的名字偏向 heart）
+  const vowels = perfumeName.match(/[aeiouAEIOU]/g)?.length || 0;
+  const softness = Math.min(1, vowels / Math.max(1, perfumeName.length)); // 0~1
+
+  // heart 在 [-5, +5]，base 在 [-5, +5]；兩者含一點負相關，避免同時爆量
+  const heartDelta = clamp1dp((randSigned01(rng) * 5.0) * (0.6 + 0.4*softness), -5.0, 5.0);
+  const baseRaw    = randSigned01(rng) * 5.0;
+  const baseDelta  = clamp1dp(baseRaw - heartDelta * 0.3, -5.0, 5.0);
+
+  return { heartDelta, baseDelta };
 }
 
-// ======================= 命名微調（組內「各香味」±5%） =======================
+// 2) 組內「各香味」：依名稱為每個材料給穩定偏好（±5.0），同名固定同結果
 function getNameMaterialBias(perfumeName) {
-  const name = perfumeName.toLowerCase();
-  const bias = {};
-  const add = (m, d) => { bias[m] = clamp1dp((bias[m] || 0) + d, -5.0, 5.0); };
+  const seed = hashString('MAT@' + perfumeName.toLowerCase().trim());
+  const rng = mulberry32(seed);
 
-  if (perfumeName.includes('茶') || name.includes('tea'))       add('鐵觀音', 5.0);
-  if (perfumeName.includes('木') || name.includes('wood'))      add('檀香木', 5.0);
-  if (perfumeName.includes('花') || name.includes('bloom'))    { add('茉莉花', 3.0); add('小蒼蘭', 2.0); }
-  if (name.includes('citrus') || perfumeName.includes('檸'))    add('香檸檬', 5.0);
-  if (name.includes('fig') || perfumeName.includes('無花果'))    add('無花果', 5.0);
-  if (name.includes('wine') || perfumeName.includes('酒'))       add('白葡萄酒', 5.0);
-  if (name.includes('osmanthus') || perfumeName.includes('桂'))  add('桂花', 5.0);
-  if (name.includes('musk') || perfumeName.includes('麝'))     { add('白麝香', 3.0); add('麝香', 3.0); }
-  if (name.includes('vanilla') || perfumeName.includes('香草'))  add('香草', 5.0);
-  if (name.includes('tonka') || perfumeName.includes('零陵香豆')) add('零陵香豆', 5.0);
-  if (name.includes('ocean') || perfumeName.includes('海'))      add('海洋', 5.0);
+  // 以字母形狀感做微妙傾向：圓形字母(oa e) → 花/甜、尖銳字母(k t y) → 木/茶/麝
+  const roundLetters = (perfumeName.match(/[oaebcdfgh]/ig)?.length || 0) / Math.max(1, perfumeName.length);
+  const sharpLetters = (perfumeName.match(/[ktvyxz]/ig)?.length || 0) / Math.max(1, perfumeName.length);
+
+  // 先隨機出每個材料的偏好，±5.0 內，再疊加圓/尖的微調
+  const bias = {};
+  ALL_MATERIALS.forEach(mat => {
+    const base = clamp1dp(randSigned01(rng) * 5.0, -5.0, 5.0);
+    let tweak = 0;
+    // 花/甜：茉莉花、小蒼蘭、金銀花、香草、白葡萄酒、香檸檬、無花果
+    if (['茉莉花','小蒼蘭','金銀花','香草','白葡萄酒','香檸檬','無花果'].includes(mat)) {
+      tweak += roundLetters * 2.0; // 最多 +2.0
+    }
+    // 木/茶/麝：檀香木、鐵觀音、麝香、白麝香、伯爵茶、零陵香豆
+    if (['檀香木','鐵觀音','麝香','白麝香','伯爵茶','零陵香豆'].includes(mat)) {
+      tweak += sharpLetters * 2.0; // 最多 +2.0
+    }
+    // 海洋清新：海洋、青草
+    if (['海洋','青草'].includes(mat)) {
+      tweak += (roundLetters * 0.5 - sharpLetters * 0.3);
+    }
+    bias[mat] = clamp1dp(base + tweak, -5.0, 5.0);
+  });
 
   return bias;
 }
@@ -127,7 +173,7 @@ function getAnswerMaterialBias(answerValues) {
   const q2 = (answerValues[1] || '').toUpperCase();
   if (q2 === 'A') { add('小蒼蘭', 3.0); add('金銀花', 2.0); }
   if (q2 === 'B') { add('橙花', 3.0); add('茉莉花', 2.0); }
-  if (q2 === 'C') { add('天竺葵', 3.0); add('青草', 2.0); /* 海洋當平衡 */ }
+  if (q2 === 'C') { add('天竺葵', 3.0); add('青草', 2.0); }
 
   const q3 = (answerValues[2] || '').toUpperCase();
   if (q3 === 'A') { add('白麝香', 3.0); add('檀香木', 2.0); }
@@ -186,7 +232,6 @@ function buildGroupMaterialDistribution(materials, answerMatBias, nameMatBias) {
   materials.forEach(m => raw[m] = baseEach);
 
   const add = (m, d) => { raw[m] = clamp1dp((raw[m] ?? baseEach) + d, 0, 100); };
-
   materials.forEach(m => {
     if (answerMatBias[m]) add(m, clamp1dp(answerMatBias[m], -5.0, 5.0));
     if (nameMatBias[m])   add(m, clamp1dp(nameMatBias[m],   -5.0, 5.0));
@@ -208,9 +253,11 @@ function getPerfumeFormula(answerValues, totalG = 6, ratioOverride = null, perfu
     base:  BASE_NOTE_MAP[q3]  || []
   };
 
-  // 1) 群組比例：基準→命名±5%→答案±5%→正規化(1dp)
-  let ratio = ratioOverride || { top: 20, heart: 50, base: 30 };
+  // 1) 群組比例：基準20/50/30 → 命名±5% → 答案±5% → 正規化(1dp)
+  const nameAdj = getNameAdjustments(perfumeNameForMaterials);
+  let ratio = ratioOverride || { top: 20, heart: 50 + nameAdj.heartDelta, base: 30 + nameAdj.baseDelta };
   ratio = normalizeRatiosTo1dp(ratio);
+
   const ansGrp = getAnswerGroupAdjustments(answerValues);
   ratio = normalizeRatiosTo1dp({
     top:   ratio.top   + ansGrp.top,
@@ -218,23 +265,23 @@ function getPerfumeFormula(answerValues, totalG = 6, ratioOverride = null, perfu
     base:  ratio.base  + ansGrp.base
   });
 
-  // 2) 組內材料分配（均分 → 命名/作答偏好 ±5% → 正規化 1dp）
+  // 2) 組內材料分配：均分 → 作答偏好 ±5 → 命名偏好 ±5 → 正規化 1dp
   const ansMatBias  = getAnswerMaterialBias(answerValues);
   const nameMatBias = getNameMaterialBias(perfumeNameForMaterials);
   const distTop   = buildGroupMaterialDistribution(notes.top,   ansMatBias, nameMatBias);
   const distHeart = buildGroupMaterialDistribution(notes.heart, ansMatBias, nameMatBias);
   const distBase  = buildGroupMaterialDistribution(notes.base,  ansMatBias, nameMatBias);
 
-  // 3) 轉成 g（材料顯示到 0.1 g）
+  // 3) 轉成 g（每件材料顯示到 0.1 g）
   const groupG = {
     top:   +(totalG * ratio.top   / 100).toFixed(3),
     heart: +(totalG * ratio.heart / 100).toFixed(3),
     base:  +(totalG * ratio.base  / 100).toFixed(3),
   };
   const weights = {};
-  const assign = (dist, groupKey) => {
+  const assign = (dist, key) => {
     Object.entries(dist).forEach(([mat, pct]) => {
-      const g = +(groupG[groupKey] * (pct / 100)).toFixed(1); // 0.1 g
+      const g = +(groupG[key] * (pct / 100)).toFixed(1); // 0.1 g
       weights[mat] = g;
     });
   };
@@ -530,21 +577,15 @@ function restart() {
   coverPage.classList.remove('hidden');
 }
 
-// ======================= 生成配方卡（基於作答 + 命名的差異化結果） =======================
+// ======================= 生成配方卡（基於作答 + 任意命名的差異化結果） =======================
 function generatePerfumeCard() {
   const perfumeName = document.getElementById('perfume-name-input').value.trim();
   if (!perfumeName) { alert('請輸入香水名稱！'); return; }
 
   try {
-    // 命名先對群組比例做 ±5%（中/後調）
-    const nameAdj = getNameAdjustments(perfumeName);
-    let baseRatio = { top: 20, heart: 50 + nameAdj.heartDelta, base: 30 + nameAdj.baseDelta };
-    baseRatio = normalizeRatiosTo1dp(baseRatio);
+    // 命名偏好直接在 getPerfumeFormula 中處理（群組 + 材料）
+    const perfumeResult = getPerfumeFormula(answerValues, 6, null, perfumeName);
 
-    // 計算整體配方（含組內材料分配），總量固定 6 g
-    const perfumeResult = getPerfumeFormula(answerValues, 6, baseRatio, perfumeName);
-
-    // 卡片輸出（不含結果說明）
     const cardHTML = `
       <div id="perfume-card" class="perfume-card">
         <div class="card-header">
@@ -647,4 +688,3 @@ function showToast(message) {
     setTimeout(() => toast.remove(), 300);
   }, 3000);
 }
-
